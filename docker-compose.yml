@@ -1,0 +1,34 @@
+version: '3.9'
+services:
+  # postgres:
+  #   image: postgres:15
+  #   environment:
+  #     POSTGRES_DB: liccium
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: postgres
+  #   ports:
+  #     - '5432:5432'
+  #   volumes:
+  #     - liccium-db:/var/lib/postgresql/data
+  #   networks:
+  #     - liccium_dev
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      # DATABASE_HOSTNAME: 'postgres'
+      APP_PORT: 3200
+    volumes:
+        - .:/usr/src/app
+        - /usr/src/app/node_modules
+    # depends_on:
+    #   - postgres
+    ports:
+      - '3200:3200'
+    networks:
+      - creator_credentials_dev
+  
+networks:
+  creator_credentials_dev:
+    driver: bridge

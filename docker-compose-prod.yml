@@ -1,0 +1,30 @@
+version: '3.9'
+services:
+  # postgres:
+  #   image: postgres:15
+  #   environment:
+  #     POSTGRES_DB: liccium
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: postgres
+  #   ports:
+  #     - '5432:5432'
+  #   volumes:
+  #     - liccium-db:/var/lib/postgresql/data
+  #   networks:
+  #     - liccium_dev
+  backend:
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/liccium-backend
+    build:
+      context: .
+    environment:
+      APP_PORT: 3100
+    volumes:
+      - ./:/code
+    ports:
+      - '3100:3100'
+    networks:
+      - creator_credentials_prod
+
+networks:
+  creator_credentials_prod:
+    driver: bridge
