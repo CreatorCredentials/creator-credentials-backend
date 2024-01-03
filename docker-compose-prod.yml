@@ -13,7 +13,7 @@ services:
   #   networks:
   #     - liccium_dev
   backend:
-    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/liccium-backend
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/creator-credentials-prod
     build:
       context: .
     environment:
