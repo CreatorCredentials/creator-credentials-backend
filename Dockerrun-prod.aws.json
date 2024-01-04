@@ -6,7 +6,7 @@
       "image": "891566721883.dkr.ecr.eu-central-1.amazonaws.com/creator-credentials-prod",
       "hostname": "backend",
       "essential": true,
-      "memory": 2024,
+      "memory": 1024,
       "portMappings": [
         {
           "hostPort": 80,
