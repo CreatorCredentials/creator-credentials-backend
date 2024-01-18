@@ -3,9 +3,14 @@ services:
   backend:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile-dev
     environment:
-      # DATABASE_HOSTNAME: 'postgres'
+      DATABASE_HOSTNAME: ${DATABASE_HOSTNAME}
+      DATABASE_PORT: ${DATABASE_PORT}
+      DATABASE_USER: ${DATABASE_USER}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+      DATABASE_NAME: ${DATABASE_NAME}
+      EC_PRIVATE_KEY_JSON: ${EC_PRIVATE_KEY_JSON}
       APP_PORT: 3200
     volumes:
         - .:/usr/src/app

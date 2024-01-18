@@ -6,6 +6,12 @@ services:
       context: .
     environment:
       APP_PORT: 3100
+      DATABASE_HOSTNAME: ${DATABASE_HOSTNAME}
+      DATABASE_PORT: ${DATABASE_PORT}
+      DATABASE_USER: ${DATABASE_USER}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+      DATABASE_NAME: ${DATABASE_NAME}
+      EC_PRIVATE_KEY_JSON: ${EC_PRIVATE_KEY_JSON}
     volumes:
       - ./:/code
     ports:
