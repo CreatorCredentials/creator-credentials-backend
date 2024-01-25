@@ -57,15 +57,15 @@ export class AppModule implements NestModule {
           },
         }),
       )
-      .forRoutes('*')
-      .apply(
-        (req: RequireAuthProp<Request>, res: Response, next: NextFunction) => {
-          if (!req.auth.userId && !req.originalUrl.includes('.well-known'))
-            throw new UnauthorizedException();
-          next();
-        },
-      )
-      .exclude('.well-known/(.*)')
       .forRoutes('*');
+    // .apply(
+    //   (req: RequireAuthProp<Request>, res: Response, next: NextFunction) => {
+    //     if (!req.auth.userId && !req.originalUrl.includes('.well-known'))
+    //       throw new UnauthorizedException();
+    //     next();
+    //   },
+    // )
+    // .exclude('.well-known/(.*)')
+    // .forRoutes('*');
   }
 }
