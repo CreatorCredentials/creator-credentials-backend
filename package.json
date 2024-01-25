@@ -9,7 +9,7 @@
     "prebuild": "rimraf dist",
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
-    "start": "node node_modules/cross-env/src/bin/cross-env.js NODE_ENV=production node dist/main",
+    "start": "node node_modules/cross-env/src/bin/cross-env.js NODE_ENV=production node dist/src/main",
     "dev": "node node_modules/cross-env/src/bin/cross-env.js NODE_ENV=development nest start --watch",
     "dev:dock": " docker compose down && docker volume prune -f && docker compose up -d --build",
     "start:debug": "nest start --debug --watch",

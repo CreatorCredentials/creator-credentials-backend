@@ -24,7 +24,7 @@ export class CredentialsService {
   ): Promise<Credential> {
     const credentialsHost = 'creatorcredentials.dev';
 
-    const currentEmailCredential = await this.credentialsRepository.find({
+    const currentEmailCredential = await this.credentialsRepository.findOne({
       where: { credentialType: CredentialType.EMail, userId: user.id },
     });
 
