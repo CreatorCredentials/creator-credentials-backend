@@ -12,6 +12,7 @@ services:
       DATABASE_PASSWORD: ${DATABASE_PASSWORD}
       DATABASE_NAME: ${DATABASE_NAME}
       EC_PRIVATE_KEY_JSON: ${EC_PRIVATE_KEY_JSON}
+      CERT_SECRET_KEY: ${CERT_SECRET_KEY}
     volumes:
       - ./:/code
     ports:
