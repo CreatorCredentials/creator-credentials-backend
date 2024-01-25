@@ -4,6 +4,7 @@ import {
   NestModule,
   UnauthorizedException,
 } from '@nestjs/common';
+import { type Request, type Response } from 'express';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -59,7 +60,8 @@ export class AppModule implements NestModule {
       .forRoutes('*')
       .apply(
         (req: RequireAuthProp<Request>, res: Response, next: NextFunction) => {
-          if (!req.auth.userId) throw new UnauthorizedException();
+          if (!req.auth.userId && !req.originalUrl.includes('.well-known'))
+            throw new UnauthorizedException();
           next();
         },
       )
