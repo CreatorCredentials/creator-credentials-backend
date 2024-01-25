@@ -15,6 +15,8 @@ import LogsMiddleware from './config/logs.middleware';
 import { ClerkExpressWithAuth, RequireAuthProp } from '@clerk/clerk-sdk-node';
 import { NextFunction } from 'express';
 import { CredentialsModule } from './credentials/credentials.module';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
 
 @Module({
   imports: [
@@ -34,6 +36,10 @@ import { CredentialsModule } from './credentials/credentials.module';
     HealthModule,
     UsersModule,
     CredentialsModule,
+    ServeStaticModule.forRoot({
+      rootPath: join(__dirname, '..', 'public'),
+      serveRoot: '/',
+    }),
   ],
   controllers: [AppController],
   providers: [AppService],
@@ -57,6 +63,7 @@ export class AppModule implements NestModule {
           next();
         },
       )
+      .exclude('.well-known/(.*)')
       .forRoutes('*');
   }
 }
