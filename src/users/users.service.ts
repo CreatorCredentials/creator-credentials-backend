@@ -1,17 +1,17 @@
-import { Inject, Injectable, forwardRef } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreateUserDto } from './dto/create-user.dto';
 import { User } from './user.entity';
-import { CredentialsService } from 'src/credentials/credentials.service';
 import { users } from '@clerk/clerk-sdk-node';
+import { CredentialsService } from 'src/credentials/credentials.service';
+
 @Injectable()
 export class UsersService {
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
-    @Inject(forwardRef(() => CredentialsService))
-    private readonly credentialsService: CredentialsService,
+    private credentialsService: CredentialsService,
   ) {}
 
   async create(createUserDto: CreateUserDto): Promise<User> {
@@ -21,9 +21,13 @@ export class UsersService {
 
     const user = await this.userRepository.save(newUser, { reload: true });
     const userFromClerk = await users.getUser(createUserDto.clerkId);
-    const email = userFromClerk.emailAddresses[0].emailAddress;
-    this.credentialsService.createEmailCredential({ email, did: email }, user);
 
+    const email = userFromClerk.emailAddresses[0].emailAddress;
+
+    await this.credentialsService.createEmailCredential(
+      { email, did: email },
+      user,
+    );
     return user;
   }
 
