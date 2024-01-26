@@ -66,6 +66,14 @@ export class CredentialsService {
       },
     };
 
+    console.log(
+      'test process.env.EC_PRIVATE_KEY_JSON: ',
+      process.env.EC_PRIVATE_KEY_JSON,
+    );
+    console.log(
+      'test process.env.EC_PRIVATE_KEY_JSON after parse: ',
+      JSON.parse(process.env.EC_PRIVATE_KEY_JSON),
+    );
     const ecPrivateKey = await jose.importJWK(
       JSON.parse(process.env.EC_PRIVATE_KEY_JSON),
       'ES256',
