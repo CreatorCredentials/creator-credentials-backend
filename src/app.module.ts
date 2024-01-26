@@ -60,6 +60,7 @@ export class AppModule implements NestModule {
         },
       )
       .exclude('.well-known/(.*)')
+      .exclude('health')
       .forRoutes('*');
   }
 }

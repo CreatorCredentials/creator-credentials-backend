@@ -1,11 +1,11 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, VERSION_NEUTRAL } from '@nestjs/common';
 import {
   HealthCheckService,
   HealthCheck,
   TypeOrmHealthIndicator,
 } from '@nestjs/terminus';
 
-@Controller('health')
+@Controller({ version: VERSION_NEUTRAL, path: "health" } )
 export class HealthController {
   constructor(
     private health: HealthCheckService,

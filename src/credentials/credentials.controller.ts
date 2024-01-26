@@ -46,9 +46,9 @@ export class CredentialsController {
     return this.credentialsService.getAllCredentialsOfUser(user);
   }
 
-  @UseGuards(AuthGuard)
-  @Delete()
-  async removeEmailCredential(@GetUser() user: User) {
-    return this.credentialsService.removeEmailCredential(user);
-  }
+  // @UseGuards(AuthGuard)
+  // @Delete()
+  // async removeEmailCredential(@GetUser() user: User) {
+  //   return this.credentialsService.removeEmailCredential(user);
+  // }
 }
