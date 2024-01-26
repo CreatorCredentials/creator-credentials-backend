@@ -66,16 +66,13 @@ export class CredentialsService {
       },
     };
 
+    console.log('test process.env.SIGNATURE_KEY: ', process.env.SIGNATURE_KEY);
     console.log(
-      'test process.env.EC_PRIVATE_KEY_JSON: ',
-      process.env.EC_PRIVATE_KEY_JSON,
-    );
-    console.log(
-      'test process.env.EC_PRIVATE_KEY_JSON after parse: ',
-      JSON.parse(process.env.EC_PRIVATE_KEY_JSON),
+      'test process.env.SIGNATURE_KEY after parse: ',
+      JSON.parse(process.env.SIGNATURE_KEY),
     );
     const ecPrivateKey = await jose.importJWK(
-      JSON.parse(process.env.EC_PRIVATE_KEY_JSON),
+      JSON.parse(process.env.SIGNATURE_KEY),
       'ES256',
     );
     const jws = await new jose.CompactSign(
