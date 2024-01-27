@@ -32,18 +32,34 @@ export class CredentialsController {
     );
   }
 
-  @Get(':id')
-  async getCredentialById(
-    @Param('id', ParseIntPipe) id: number,
-    @GetClerkUserAuth() auth: AuthObject,
-  ) {
-    return this.credentialsService.getById(id, auth.userId);
-  }
+  // @Get(':id')
+  // async getCredentialById(
+  //   @Param('id', ParseIntPipe) id: number,
+  //   @GetClerkUserAuth() auth: AuthObject,
+  // ) {
+  //   return this.credentialsService.getById(id, auth.userId);
+  // }
 
   @UseGuards(AuthGuard)
   @Get()
   async getAllCredentialsOfUser(@GetUser() user: User) {
-    return this.credentialsService.getAllCredentialsOfUser(user);
+    const credentials = await this.credentialsService.getAllCredentialsOfUser(
+      user,
+    );
+
+    return {
+      credentials,
+    };
+  }
+  @UseGuards(AuthGuard)
+  @Get('email')
+  async getEmailCredentialOfUser(@GetUser() user: User) {
+    const emailCredential =
+      await this.credentialsService.getEmailCredentialOfUser(user);
+
+    return {
+      emailCredential,
+    };
   }
 
   // @UseGuards(AuthGuard)

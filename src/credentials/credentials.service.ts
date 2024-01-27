@@ -10,6 +10,7 @@ import { Credential, CredentialType } from './credential.entity';
 import * as jose from 'jose';
 import { User } from 'src/users/user.entity';
 import { v4 as uuidv4 } from 'uuid';
+import { formatCredential } from './credentials.utils';
 
 @Injectable()
 export class CredentialsService {
@@ -106,20 +107,20 @@ export class CredentialsService {
     });
   }
 
+  async getEmailCredentialOfUser(user: User): Promise<Credential[]> {
+    const credential = await this.credentialsRepository.findOne({
+      where: { userId: user.id, credentialType: CredentialType.EMail },
+    });
+
+    return formatCredential(credential);
+  }
+
   async getAllCredentialsOfUser(user: User): Promise<Credential[]> {
     const credentials = await this.credentialsRepository.find({
       where: { userId: user.id },
     });
 
-    const result = credentials.map((credential) => ({
-      ...credential.credentialObject,
-      proof: {
-        type: 'JwtProof2020',
-        jwt: credential.token,
-      },
-    }));
-    console.log(result);
-    return result;
+    return credentials.map(formatCredential);
   }
 
   async removeEmailCredential(user: User): Promise<DeleteResult> {
