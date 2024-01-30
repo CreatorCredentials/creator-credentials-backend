@@ -10,6 +10,8 @@ import {
 } from 'typeorm';
 import { Exclude } from 'class-transformer';
 import { User } from 'src/users/user.entity';
+
+//TO DO, Use full credential from shared typings later
 export enum CredentialType {
   EMail = 'EMAIL',
 }

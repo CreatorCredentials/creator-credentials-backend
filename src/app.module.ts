@@ -16,6 +16,7 @@ import LogsMiddleware from './config/logs.middleware';
 import { ClerkExpressWithAuth, RequireAuthProp } from '@clerk/clerk-sdk-node';
 import { NextFunction } from 'express';
 import { CredentialsModule } from './credentials/credentials.module';
+import { MocksModule } from './mocks/mocks.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { CredentialsModule } from './credentials/credentials.module';
     HealthModule,
     UsersModule,
     CredentialsModule,
+    MocksModule,
   ],
   controllers: [AppController],
   providers: [AppService],
@@ -59,8 +61,7 @@ export class AppModule implements NestModule {
           next();
         },
       )
-      .exclude('.well-known/(.*)')
-      .exclude('health')
+      .exclude('.well-known/(.*)', 'health', 'v1/mocks', 'v1/mocks/(.*)')
       .forRoutes('*');
   }
 }
