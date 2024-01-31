@@ -6,7 +6,6 @@ export class AuthGuard implements CanActivate {
   constructor(private usersService: UsersService) {}
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
-    console.log('request.auth', request.auth);
     const clerkId = request.auth.userId;
     if (!clerkId) return false;
 

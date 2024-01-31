@@ -17,6 +17,7 @@ import {
   CreateTxtRecordForDomainResponse,
   GenerateMetaMaskNonceResponse,
   GetCreatorCredentialsResponse,
+  GetCreatorIssuersResponse,
   GetCredentialsRequestDetailsResponse,
   GetIssuerCreatorsResponse,
   GetIssuerCredentialsResponse,
@@ -86,8 +87,10 @@ export class MocksController {
   rejectCreatorConnection() {}
 
   @Get('creator/issuers')
-  getCreatorIssuers() {
-    return MOCK_ISSUERS;
+  getCreatorIssuers(): GetCreatorIssuersResponse {
+    return {
+      issuers: MOCK_ISSUERS,
+    };
   }
 
   @Get('creator/issuers/:issuerId')

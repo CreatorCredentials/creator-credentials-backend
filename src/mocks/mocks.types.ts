@@ -4,7 +4,10 @@ import {
   IssuerCredentials,
   VerifiedCredentialsUnion,
 } from 'src/shared/typings/Credentials';
-import { IssuerWithVerifiedCredentials } from 'src/shared/typings/Issuer';
+import {
+  Issuer,
+  IssuerWithVerifiedCredentials,
+} from 'src/shared/typings/Issuer';
 import { IssuerProfile } from 'src/shared/typings/IssuerProfile';
 
 export type GetIssuerCreatorsResponse = {
@@ -45,4 +48,8 @@ export type GetRequestableCredentialsResponse = {
 };
 export type GetIssuerCredentialsResponse = {
   credentials: IssuerCredentials;
+};
+
+export type GetCreatorIssuersResponse = {
+  issuers: Issuer[];
 };
