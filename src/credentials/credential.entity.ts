@@ -14,6 +14,8 @@ import { User } from 'src/users/user.entity';
 //TO DO, Use full credential from shared typings later
 export enum CredentialType {
   EMail = 'EMAIL',
+  Wallet = 'WALLET',
+  Domain = 'DOMAIN',
 }
 
 @Entity()

@@ -53,8 +53,6 @@ export class MocksController {
     @Query('status') status: string = CreatorVerificationStatus.Accepted,
     @Query('search') search: string = '',
   ): GetIssuerCreatorsResponse {
-    console.log('GetIssuerCreatorsResponse status', status);
-    console.log('GetIssuerCreatorsResponse search', search);
     const filteredCreators = MOCK_CREATORS.filter(
       (creator) => creator.status === status && creator.title.includes(search),
     );
@@ -120,20 +118,6 @@ export class MocksController {
   @Get('users/credentials')
   getCreatorCredentials(): GetCreatorCredentialsResponse {
     return MOCK_CREATOR_CREDENTIALS;
-  }
-
-  @Post('users/nonce')
-  generateMetaMaskNonce(): GenerateMetaMaskNonceResponse {
-    const randomNonce = Math.floor(Math.random() * 1000000000);
-    return { nonce: randomNonce.toString() };
-  }
-
-  @Post('users/:walletAddress')
-  generateMetaMaskNonceByAddress(
-    @Param('walletAddress') walletAddress: string,
-  ): GenerateMetaMaskNonceResponse {
-    const randomNonce = Math.floor(Math.random() * 1000000000);
-    return { nonce: randomNonce.toString() };
   }
 
   @Post('verification/domain/txt-record')

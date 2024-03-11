@@ -8,6 +8,7 @@ import {
   OneToMany,
 } from 'typeorm';
 import { Credential } from 'src/credentials/credential.entity';
+import { Exclude } from 'class-transformer';
 export enum ClerkRole {
   Issuer = 'issuer',
   Creator = 'creator',
@@ -24,6 +25,10 @@ export class User extends BaseEntity {
   })
   clerkId: string;
 
+  @Exclude()
+  @Column({ name: 'nonce', default: '' })
+  nonce: string;
+
   @Column({
     name: 'clerk_role',
     type: 'enum',
@@ -36,7 +41,18 @@ export class User extends BaseEntity {
   @OneToMany(() => Credential, (credential) => credential.user)
   credentials: Credential[];
 
+  @Column({ unique: true, name: 'public_address', nullable: true })
+  publicAddress: string;
+
   //TIMESTAMPS
+  @Exclude()
+  @Column({
+    name: 'nonce_changed_at',
+    type: 'timestamp',
+    default: () => 'CURRENT_TIMESTAMP',
+    nullable: false,
+  })
+  nonceChangedAt!: Date;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;

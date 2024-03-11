@@ -15,6 +15,7 @@ import { AuthObject } from '@clerk/clerk-sdk-node';
 import { AuthGuard } from 'src/users/guards/clerk-user.guard';
 import { GetUser } from 'src/users/get-user.decorator';
 import { User } from 'src/users/user.entity';
+import { CreateWalletCredentialDto } from './dto/create-wallet-credential.dto';
 
 @Controller('credentials')
 export class CredentialsController {
@@ -32,14 +33,6 @@ export class CredentialsController {
     );
   }
 
-  // @Get(':id')
-  // async getCredentialById(
-  //   @Param('id', ParseIntPipe) id: number,
-  //   @GetClerkUserAuth() auth: AuthObject,
-  // ) {
-  //   return this.credentialsService.getById(id, auth.userId);
-  // }
-
   @UseGuards(AuthGuard)
   @Get()
   async getAllCredentialsOfUser(@GetUser() user: User) {
@@ -56,15 +49,12 @@ export class CredentialsController {
   async getEmailCredentialOfUser(@GetUser() user: User) {
     const emailCredential =
       await this.credentialsService.getEmailCredentialOfUser(user);
+    const walletCredential =
+      await this.credentialsService.getWalletCredentialOfUser(user);
 
     return {
       emailCredential,
+      walletCredential,
     };
   }
-
-  // @UseGuards(AuthGuard)
-  // @Delete()
-  // async removeEmailCredential(@GetUser() user: User) {
-  //   return this.credentialsService.removeEmailCredential(user);
-  // }
 }
