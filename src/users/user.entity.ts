@@ -44,7 +44,30 @@ export class User extends BaseEntity {
   @Column({ unique: true, name: 'public_address', nullable: true })
   publicAddress: string;
 
+  @Column({ unique: true, name: 'domain', nullable: true })
+  domain: string;
+
+  @Exclude()
+  @Column({ name: 'domain_record', nullable: true })
+  domainRecord: string;
+
+  @Column({
+    name: 'domain_pending_verifcation',
+    nullable: false,
+    default: false,
+  })
+  domainPendingVerifcation: boolean;
+
   //TIMESTAMPS
+  @Exclude()
+  @Column({
+    name: 'domain_record_changed_at',
+    type: 'timestamp',
+    default: () => 'CURRENT_TIMESTAMP',
+    nullable: false,
+  })
+  domainRecordChangedAt!: Date;
+
   @Exclude()
   @Column({
     name: 'nonce_changed_at',

@@ -19,6 +19,10 @@ import {
   bufferToHex,
 } from 'ethereumjs-util';
 import { ConfigService } from '@nestjs/config';
+import { resolveTxt } from 'dns';
+import { CreateTxtRecordForDomainResponse } from './users.types';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { domainVerificationPrefix } from 'src/credentials/credentials.constants';
 
 @Injectable()
 export class UsersService {
@@ -142,7 +146,123 @@ export class UsersService {
     const updatedUser = await this.userRepository.save(user, { reload: true });
 
     await this.credentialsService.removeWalletCredential(updatedUser);
-    //TODO: Also remove wallet credential here
+
+    return updatedUser;
+  }
+
+  private generateDomainRecord() {
+    return `${domainVerificationPrefix}0x${this.makeid(
+      UsersService.recordLength,
+    )}`;
+  }
+
+  private static readonly recordLength = 126;
+  private makeid(length: number) {
+    let result = '';
+    const characters =
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const charactersLength = characters.length;
+    let counter = 0;
+    while (counter < length) {
+      result += characters.charAt(Math.floor(Math.random() * charactersLength));
+      counter += 1;
+    }
+    return result;
+  }
+
+  async receiveAndUpdateDomainRecord(
+    user: User,
+    domain: string,
+  ): Promise<CreateTxtRecordForDomainResponse> {
+    if (user.domain && domain === user.domain && user.domainRecord) {
+      return {
+        txtRecord: user.domainRecord,
+      };
+    }
+
+    user.domainRecord = this.generateDomainRecord();
+    user.domain = domain;
+    user.domainRecordChangedAt = new Date();
+
+    const updatedUser = await this.userRepository.save(user, { reload: true });
+
+    return {
+      txtRecord: updatedUser.domainRecord,
+    };
+  }
+
+  async confirmDomainRecordCreated(user: User) {
+    user.domainPendingVerifcation = true;
+    await this.userRepository.save(user, { reload: true });
+
+    await this.credentialsService.createPendingDomainCredential(
+      { did: user.domain, domain: user.domain },
+      user,
+    );
+
+    this.verifyDomainRecordAndConnect(user);
+  }
+
+  async resolveTxtOnDomain(domain: string): Promise<string[][]> {
+    return new Promise((resolve, reject) => {
+      resolveTxt(domain, (err, addresses) => {
+        if (err) {
+          reject(err);
+        }
+        resolve(addresses);
+      });
+    });
+  }
+
+  @Cron(CronExpression.EVERY_10_SECONDS)
+  async checkUserDomains() {
+    const users = await this.userRepository.find({
+      where: { domainPendingVerifcation: true },
+    });
+    users.forEach((user) => this.verifyDomainRecordAndConnect(user));
+  }
+
+  private async verifyDomainRecordAndConnect(user: User) {
+    console.log('cron called for user: ', user);
+    const records = await this.resolveTxtOnDomain(user.domain);
+
+    const creatorCredentialsMessagesFromRecords = records.filter((record) =>
+      record.some((value) => value.includes(domainVerificationPrefix)),
+    );
+
+    // const valueToVerify = creatorCredentialsMessagesFromRecords[0][0];
+    console.log(
+      'verifyRecordAndConnectDomain: ',
+      creatorCredentialsMessagesFromRecords,
+    );
+    console.log('verifyRecordAndConnectDomain: ', user.domainRecord);
+    const doesValuePresented = creatorCredentialsMessagesFromRecords.some(
+      (record) => record.some((value) => value === user.domainRecord),
+    );
+    // if (valueToVerify && valueToVerify === user.domainRecord) {
+    if (doesValuePresented) {
+      await this.credentialsService.createDomainCredential(
+        { did: user.domain, domain: user.domain },
+        user,
+      );
+      await this.userRepository.update(
+        { clerkId: user.clerkId },
+        { domainPendingVerifcation: false },
+      );
+    }
+  }
+
+  async disconnectDomain(clerkId: string) {
+    const user = await this.userRepository.findOneBy({ clerkId });
+
+    user.domain = null;
+    user.domainRecord = null;
+    user.domainPendingVerifcation = false;
+    user.domainRecordChangedAt = new Date();
+    const updatedUser = await this.userRepository.save(user, { reload: true });
+
+    await this.credentialsService.removeDomainCredential(updatedUser);
+    //TODO: Also remove wallet  credential here
     return updatedUser;
   }
 }

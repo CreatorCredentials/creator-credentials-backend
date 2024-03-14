@@ -1,14 +1,27 @@
-import { Controller, Get, Post, Param, UseGuards, Body } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Param,
+  UseGuards,
+  Body,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { UsersService } from './users.service';
 import { GetClerkUserAuth } from './get-clerk-auth.decorator';
 import { type AuthObject, clerkClient } from '@clerk/clerk-sdk-node';
 import { ClerkRole, User } from './user.entity';
 import { AuthGuard } from './guards/clerk-user.guard';
 import { GetUser } from './get-user.decorator';
+import { CredentialsService } from 'src/credentials/credentials.service';
 
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly credentialsService: CredentialsService,
+  ) {}
 
   @Post('register')
   async registerUser(@GetClerkUserAuth() auth: AuthObject) {
@@ -48,6 +61,25 @@ export class UsersController {
   }
 
   @UseGuards(AuthGuard)
+  @Get('credentials')
+  async getEmailCredentialOfUser(@GetUser() user: User) {
+    const emailCredential =
+      await this.credentialsService.getEmailCredentialOfUser(user);
+    const walletCredential =
+      await this.credentialsService.getWalletCredentialOfUser(user);
+
+    const domainCredential =
+      await this.credentialsService.getDomainCredentialOfUser(user);
+
+    return {
+      email: emailCredential,
+      wallet: walletCredential || null,
+      domain: domainCredential || null,
+      // membership: MembershipCredential[].
+    };
+  }
+
+  @UseGuards(AuthGuard)
   @Post('address/connect')
   async connectPublicAddressToUser(
     @GetUser() user: User,
@@ -64,5 +96,28 @@ export class UsersController {
   @Post('address/disconnect')
   async disconnectPublicAddressToUser(@GetUser() user: User) {
     return this.usersService.disconnectAddress(user.clerkId);
+  }
+
+  @UseGuards(AuthGuard)
+  @Post('verification/domain/txt-record')
+  @HttpCode(HttpStatus.CREATED)
+  createTxtRecordForDomain(
+    @GetUser() user: User,
+    @Body('domain') domain: string,
+  ) {
+    return this.usersService.receiveAndUpdateDomainRecord(user, domain);
+  }
+
+  @UseGuards(AuthGuard)
+  @Post('verification/domain/confirm')
+  @HttpCode(HttpStatus.CREATED)
+  confirmDomainTxtRecord(@GetUser() user: User) {
+    return this.usersService.confirmDomainRecordCreated(user);
+  }
+
+  @UseGuards(AuthGuard)
+  @Post('domain/disconnect')
+  async disconnectDomainToUser(@GetUser() user: User) {
+    return this.usersService.disconnectDomain(user.clerkId);
   }
 }

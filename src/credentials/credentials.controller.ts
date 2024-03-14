@@ -1,21 +1,9 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Param,
-  ParseIntPipe,
-  UseGuards,
-  Delete,
-} from '@nestjs/common';
+import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
 import { CredentialsService } from './credentials.service';
-import { CreateEmailCredentialDto } from './dto/create-credential.dto';
-import { GetClerkUserAuth } from 'src/users/get-clerk-auth.decorator';
-import { AuthObject } from '@clerk/clerk-sdk-node';
+import { CreateEmailCredentialDto } from './dto/create-email-credential.dto';
 import { AuthGuard } from 'src/users/guards/clerk-user.guard';
 import { GetUser } from 'src/users/get-user.decorator';
 import { User } from 'src/users/user.entity';
-import { CreateWalletCredentialDto } from './dto/create-wallet-credential.dto';
 
 @Controller('credentials')
 export class CredentialsController {
@@ -33,17 +21,6 @@ export class CredentialsController {
     );
   }
 
-  @UseGuards(AuthGuard)
-  @Get()
-  async getAllCredentialsOfUser(@GetUser() user: User) {
-    const credentials = await this.credentialsService.getAllCredentialsOfUser(
-      user,
-    );
-
-    return {
-      credentials,
-    };
-  }
   @UseGuards(AuthGuard)
   @Get('email')
   async getEmailCredentialOfUser(@GetUser() user: User) {

@@ -2,10 +2,6 @@ import {
   Controller,
   Get,
   Post,
-  UseGuards,
-  Request,
-  Body,
-  VERSION_NEUTRAL,
   Param,
   Query,
   NotFoundException,
@@ -14,8 +10,6 @@ import {
 } from '@nestjs/common';
 import {
   CreateDidWebJsonFileResponse,
-  CreateTxtRecordForDomainResponse,
-  GenerateMetaMaskNonceResponse,
   GetCreatorCredentialsResponse,
   GetCreatorIssuersResponse,
   GetCredentialsRequestDetailsResponse,
@@ -119,19 +113,6 @@ export class MocksController {
   getCreatorCredentials(): GetCreatorCredentialsResponse {
     return MOCK_CREATOR_CREDENTIALS;
   }
-
-  @Post('verification/domain/txt-record')
-  @HttpCode(HttpStatus.CREATED)
-  createTxtRecordForDomain(): CreateTxtRecordForDomainResponse {
-    return {
-      txtRecord:
-        '"cc-verification=0x3220916bf809914j82924bb8f32e1c396eba5c5 0b199a8ea7e37g6s99bcf141f1de226 4ded52ef3c0fb6cb79bd37j8237596b692dc37176ea78dc5c385fb1c"',
-    };
-  }
-
-  @Post('verification/domain/confirm')
-  @HttpCode(HttpStatus.CREATED)
-  confirmDomainTxtRecord() {}
 
   @Post('verification/did-web/create-file')
   @HttpCode(HttpStatus.CREATED)

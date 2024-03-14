@@ -16,6 +16,14 @@ export enum CredentialType {
   EMail = 'EMAIL',
   Wallet = 'WALLET',
   Domain = 'DOMAIN',
+  Member = 'MEMBER',
+  DidWeb = 'DID_WEB',
+}
+
+export enum CredentialVerificationStatus {
+  Pending = 'PENDING',
+  Success = 'SUCCESS',
+  Failed = 'FAILED',
 }
 
 @Entity()
@@ -24,7 +32,7 @@ export class Credential extends BaseEntity {
   id: number;
 
   @Column({ nullable: false })
-  email: string;
+  email: string; //TODO: rename to credential value with all data transfer
 
   @Column({ nullable: false })
   token: string;
@@ -52,6 +60,15 @@ export class Credential extends BaseEntity {
     default: CredentialType.EMail,
   })
   credentialType: CredentialType;
+
+  @Column({
+    name: 'credential_status',
+    type: 'enum',
+    enum: CredentialVerificationStatus,
+    nullable: false,
+    default: CredentialVerificationStatus.Pending,
+  })
+  credentialStatus: CredentialVerificationStatus;
 
   //TIMESTAMPS
 
