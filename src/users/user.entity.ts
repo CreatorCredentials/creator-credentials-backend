@@ -58,7 +58,30 @@ export class User extends BaseEntity {
   })
   domainPendingVerifcation: boolean;
 
+  @Column({ unique: true, name: 'did_web', nullable: true })
+  didWeb: string;
+
+  @Exclude()
+  @Column({ name: 'did_web_well_known', nullable: true, type: 'jsonb' })
+  didWebWellKnown: DidWebWellKnown;
+
+  @Column({
+    name: 'did_web_pending_verifcation',
+    nullable: false,
+    default: false,
+  })
+  didWebPendingVerifcation: boolean;
+
   //TIMESTAMPS
+  @Exclude()
+  @Column({
+    name: 'did_web_well_known_changed_at',
+    type: 'timestamp',
+    default: () => 'CURRENT_TIMESTAMP',
+    nullable: false,
+  })
+  didWebWellKnownChangedAt!: Date;
+
   @Exclude()
   @Column({
     name: 'domain_record_changed_at',
@@ -83,3 +106,22 @@ export class User extends BaseEntity {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 }
+
+export type VerificationMethod = {
+  id: string;
+  type: string;
+  controller: string;
+  publicKeyJwk: {
+    kty: string;
+    crv: string;
+    x: string;
+  };
+};
+
+export type DidWebWellKnown = {
+  '@context': string[];
+  id: string;
+  value: string;
+  verificationMethod: VerificationMethod[];
+  authentication: string[];
+};

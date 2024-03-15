@@ -20,9 +20,15 @@ import {
 } from 'ethereumjs-util';
 import { ConfigService } from '@nestjs/config';
 import { resolveTxt } from 'dns';
-import { CreateTxtRecordForDomainResponse } from './users.types';
+import {
+  CreateTxtRecordForDomainResponse,
+  CreateWellKnownForDidWebResponse,
+} from './users.types';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { domainVerificationPrefix } from 'src/credentials/credentials.constants';
+import { HttpService } from '@nestjs/axios';
+import * as https from 'https';
+import { map } from 'rxjs';
 
 @Injectable()
 export class UsersService {
@@ -31,6 +37,7 @@ export class UsersService {
     private userRepository: Repository<User>,
     private credentialsService: CredentialsService,
     private configService: ConfigService,
+    private httpService: HttpService,
   ) {}
 
   async create(createUserDto: CreateUserDto): Promise<User> {
@@ -146,7 +153,6 @@ export class UsersService {
     const updatedUser = await this.userRepository.save(user, { reload: true });
 
     await this.credentialsService.removeWalletCredential(updatedUser);
-
     return updatedUser;
   }
 
@@ -179,9 +185,11 @@ export class UsersService {
         txtRecord: user.domainRecord,
       };
     }
+    await this.credentialsService.removeDomainCredential(user);
 
     user.domainRecord = this.generateDomainRecord();
     user.domain = domain;
+    user.domainPendingVerifcation = false;
     user.domainRecordChangedAt = new Date();
 
     const updatedUser = await this.userRepository.save(user, { reload: true });
@@ -192,6 +200,8 @@ export class UsersService {
   }
 
   async confirmDomainRecordCreated(user: User) {
+    await this.credentialsService.removeDomainCredential(user);
+
     user.domainPendingVerifcation = true;
     await this.userRepository.save(user, { reload: true });
 
@@ -223,7 +233,6 @@ export class UsersService {
   }
 
   private async verifyDomainRecordAndConnect(user: User) {
-    console.log('cron called for user: ', user);
     const records = await this.resolveTxtOnDomain(user.domain);
 
     const creatorCredentialsMessagesFromRecords = records.filter((record) =>
@@ -262,7 +271,130 @@ export class UsersService {
     const updatedUser = await this.userRepository.save(user, { reload: true });
 
     await this.credentialsService.removeDomainCredential(updatedUser);
-    //TODO: Also remove wallet  credential here
+    return updatedUser;
+  }
+
+  async receiveAndUpdateDidWebWellKnown(
+    user: User,
+    didWeb: string,
+  ): Promise<CreateWellKnownForDidWebResponse> {
+    if (user.didWeb && didWeb === user.didWeb && user.didWebWellKnown) {
+      return {
+        wellKnownJsonString: `// ${user.didWebWellKnownChangedAt.toUTCString()}
+      // https://www.${didWeb}/.well-known/did.json
+        ${JSON.stringify(user.didWebWellKnown, null, 2)}
+      `,
+      };
+    }
+
+    await this.credentialsService.removeDidWebCredential(user);
+    user.didWeb = didWeb;
+    user.didWebWellKnown = this.generateWellKnownForDidWeb(didWeb);
+    user.didWebPendingVerifcation = false;
+    user.didWebWellKnownChangedAt = new Date();
+
+    const updatedUser = await this.userRepository.save(user, { reload: true });
+
+    return {
+      wellKnownJsonString: JSON.stringify(updatedUser.didWebWellKnown, null, 2),
+    };
+  }
+
+  private generateWellKnownForDidWeb(didWeb: string) {
+    return {
+      '@context': [
+        'https://www.w3.org/ns/did/v1',
+        'https://w3id.org/security/suites/jws-2020/v1',
+      ],
+      id: `did:web:${didWeb}`,
+      value: didWeb,
+      verificationMethod: [
+        {
+          id: `did:web:${didWeb}#key-0`,
+          type: 'JsonWebKey2020',
+          controller: `did:web:${didWeb}`,
+          publicKeyJwk: {
+            kty: 'OKP',
+            crv: 'Ed25519',
+            x: this.makeid(32),
+          },
+        },
+      ],
+      authentication: ['did:web:creatorcredentials.dev#key-0'],
+    };
+  }
+
+  async confirmDidWebWellKnownCreated(user: User) {
+    user.didWebPendingVerifcation = true;
+    await this.userRepository.save(user, { reload: true });
+    await this.credentialsService.removeDidWebCredential(user);
+
+    await this.credentialsService.createPendingDidWebCredential(
+      { did: user.domain, didWeb: user.didWeb },
+      user,
+    );
+
+    this.verifyDidWebWellKnownAndConnect(user);
+  }
+
+  @Cron(CronExpression.EVERY_10_SECONDS)
+  async checkUsersDidWeb() {
+    try {
+      const users = await this.userRepository.find({
+        where: { didWebPendingVerifcation: true },
+      });
+      users.forEach((user) => this.verifyDidWebWellKnownAndConnect(user));
+    } catch (error) {
+      console.log(error);
+    }
+  }
+
+  private async getDidWebWellKnowOfUser(user: User): Promise<any> {
+    const didWebFromServer = await this.httpService
+      .get(`https://${user.didWeb}/.well-known/did.json`, {
+        httpsAgent: new https.Agent({
+          rejectUnauthorized: false,
+        }),
+      })
+      .pipe(map((response) => response.data))
+      .toPromise();
+
+    return didWebFromServer;
+  }
+
+  private async verifyDidWebWellKnownAndConnect(user: User) {
+    const wellKnown = await this.getDidWebWellKnowOfUser(user);
+    const toCompare = user.didWebWellKnown;
+    const doesWellKnowMatch =
+      wellKnown.verificationMethod[0].publicKeyJwk.x ===
+      toCompare.verificationMethod[0].publicKeyJwk.x;
+
+    console.log(wellKnown);
+
+    console.log(toCompare);
+
+    if (doesWellKnowMatch) {
+      await this.credentialsService.createDidWebCredential(
+        { did: user.domain, didWeb: user.didWeb },
+        user,
+      );
+      await this.userRepository.update(
+        { clerkId: user.clerkId },
+        { didWebPendingVerifcation: false },
+      );
+    }
+  }
+
+  async disconnectDidWeb(clerkId: string) {
+    const user = await this.userRepository.findOneBy({ clerkId });
+
+    user.didWeb = null;
+    user.didWebWellKnown = null;
+    user.didWebPendingVerifcation = false;
+    user.didWebWellKnownChangedAt = new Date();
+    const updatedUser = await this.userRepository.save(user, { reload: true });
+
+    await this.credentialsService.removeDidWebCredential(updatedUser);
     return updatedUser;
   }
 }

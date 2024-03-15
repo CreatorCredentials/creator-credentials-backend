@@ -5,11 +5,13 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { User } from './user.entity';
 import { CredentialsService } from 'src/credentials/credentials.service';
 import { CredentialsModule } from 'src/credentials/credentials.module';
+import { HttpModule } from '@nestjs/axios';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([User]),
     forwardRef(() => CredentialsModule),
+    HttpModule,
   ],
   exports: [UsersService],
   controllers: [UsersController],

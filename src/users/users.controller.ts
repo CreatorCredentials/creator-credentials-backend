@@ -71,10 +71,14 @@ export class UsersController {
     const domainCredential =
       await this.credentialsService.getDomainCredentialOfUser(user);
 
+    const didWebCredential =
+      await this.credentialsService.getDidWebCredentialOfUser(user);
+
     return {
       email: emailCredential,
       wallet: walletCredential || null,
       domain: domainCredential || null,
+      didWeb: didWebCredential || null,
       // membership: MembershipCredential[].
     };
   }
@@ -117,7 +121,30 @@ export class UsersController {
 
   @UseGuards(AuthGuard)
   @Post('domain/disconnect')
-  async disconnectDomainToUser(@GetUser() user: User) {
+  async disconnectDomainFromUser(@GetUser() user: User) {
     return this.usersService.disconnectDomain(user.clerkId);
+  }
+
+  @UseGuards(AuthGuard)
+  @Post('verification/did-web/well-known')
+  @HttpCode(HttpStatus.CREATED)
+  createWellKnownForDidWeb(
+    @GetUser() user: User,
+    @Body('didWeb') didWeb: string,
+  ) {
+    return this.usersService.receiveAndUpdateDidWebWellKnown(user, didWeb);
+  }
+
+  @UseGuards(AuthGuard)
+  @Post('verification/did-web/confirm')
+  @HttpCode(HttpStatus.CREATED)
+  confirmDidWebWellKnown(@GetUser() user: User) {
+    return this.usersService.confirmDidWebWellKnownCreated(user);
+  }
+
+  @UseGuards(AuthGuard)
+  @Post('did-web/disconnect')
+  async disconnectDidWebFromUser(@GetUser() user: User) {
+    return this.usersService.disconnectDidWeb(user.clerkId);
   }
 }
