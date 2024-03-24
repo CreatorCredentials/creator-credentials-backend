@@ -53,7 +53,7 @@ export function formatWalletCredential(
     status: credential.credentialStatus,
     type: CredentialType.Wallet,
     data: {
-      address: credential.credentialObject.walletAddress || 'wrong',
+      address: credential.email || 'wrong',
       companyName: 'Creator Credentials B.V.',
       requirements: 'Info about requirements',
       credentialObject: credential,
