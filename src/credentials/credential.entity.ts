@@ -10,21 +10,8 @@ import {
 } from 'typeorm';
 import { Exclude } from 'class-transformer';
 import { User } from 'src/users/user.entity';
-
-//TO DO, Use full credential from shared typings later
-export enum CredentialType {
-  EMail = 'EMAIL',
-  Wallet = 'WALLET',
-  Domain = 'DOMAIN',
-  Member = 'MEMBER',
-  DidWeb = 'DID_WEB',
-}
-
-export enum CredentialVerificationStatus {
-  Pending = 'PENDING',
-  Success = 'SUCCESS',
-  Failed = 'FAILED',
-}
+import { CredentialType } from 'src/shared/typings/CredentialType';
+import { CredentialVerificationStatus } from 'src/shared/typings/CredentialVerificationStatus';
 
 @Entity()
 export class Credential extends BaseEntity {
@@ -39,6 +26,21 @@ export class Credential extends BaseEntity {
 
   @Column({ type: 'jsonb', nullable: false })
   credentialObject: any;
+
+  @Exclude()
+  @ManyToOne(() => User, (user) => user.credentials, {
+    eager: false,
+    nullable: true,
+  })
+  @JoinColumn({ name: 'issuer_id' })
+  issuer: User;
+
+  @Exclude()
+  @Column({ name: 'issuer_id', nullable: true })
+  issuerId: number;
+
+  @Column({ nullable: true })
+  value: string;
 
   @Exclude()
   @ManyToOne(() => User, (user) => user.credentials, {

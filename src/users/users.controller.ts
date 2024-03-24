@@ -7,6 +7,9 @@ import {
   Body,
   HttpCode,
   HttpStatus,
+  NotFoundException,
+  Query,
+  ParseIntPipe,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { GetClerkUserAuth } from './get-clerk-auth.decorator';
@@ -15,6 +18,8 @@ import { ClerkRole, User } from './user.entity';
 import { AuthGuard } from './guards/clerk-user.guard';
 import { GetUser } from './get-user.decorator';
 import { CredentialsService } from 'src/credentials/credentials.service';
+import { CreatorVerificationStatus } from 'src/shared/typings/CreatorVerificationStatus';
+import { CreateWellKnownForDidWebResponse } from './users.types';
 
 @Controller('users')
 export class UsersController {
@@ -49,6 +54,98 @@ export class UsersController {
     return user;
   }
 
+  @UseGuards(AuthGuard)
+  @Get('creators')
+  async getCreatorsWithFilter(
+    @GetUser() user: User,
+    @Query('status') status: CreatorVerificationStatus,
+  ) {
+    if (user.clerkRole !== ClerkRole.Issuer) {
+      throw new NotFoundException('This api is only for issuers.');
+    }
+    const creators = await this.usersService.getAllCreatorsOfIssuer(
+      user,
+      status,
+    );
+
+    return {
+      creators,
+    };
+  }
+
+  @UseGuards(AuthGuard)
+  @Get('creators/:creatorId')
+  async getCreatorById(
+    @GetUser() user: User,
+    @Param('creatorId', ParseIntPipe) creatorId: number,
+  ) {
+    if (user.clerkRole !== ClerkRole.Issuer) {
+      throw new NotFoundException('This api is only for issuers.');
+    }
+    const creatorsAndCredentials = await this.usersService.getCreatorOfIssuer(
+      creatorId,
+      user,
+    );
+
+    return creatorsAndCredentials;
+  }
+
+  @UseGuards(AuthGuard)
+  @Post('creators/:creatorId/accept')
+  async acceptCreatorConnection(
+    @GetUser() user: User,
+    @Param('creatorId', ParseIntPipe) creatorId: number,
+  ) {
+    if (user.clerkRole !== ClerkRole.Issuer) {
+      throw new NotFoundException('This api is only for issuers.');
+    }
+    await this.usersService.acceptConnection(creatorId, user);
+  }
+
+  @UseGuards(AuthGuard)
+  @Post('creators/:creatorId/reject')
+  async rejectCreatorConnection(
+    @GetUser() user: User,
+    @Param('creatorId', ParseIntPipe) creatorId: number,
+  ) {
+    if (user.clerkRole !== ClerkRole.Issuer) {
+      throw new NotFoundException('This api is only for issuers.');
+    }
+    await this.usersService.rejectConnection(creatorId, user);
+  }
+
+  @UseGuards(AuthGuard)
+  @Get('issuers')
+  async getIssuers(@GetUser() user: User) {
+    if (user.clerkRole !== ClerkRole.Creator) {
+      throw new NotFoundException('This api is only for creators.');
+    }
+    return this.usersService.getAllIssuers(user);
+  }
+
+  @UseGuards(AuthGuard)
+  @Get('issuers/:issuerId')
+  async getIssuer(
+    @GetUser() user: User,
+    @Param('issuerId', ParseIntPipe) issuerId: number,
+  ) {
+    if (user.clerkRole !== ClerkRole.Creator) {
+      throw new NotFoundException('This api is only for creators.');
+    }
+    const issuer = await this.usersService.getIssuer(issuerId, user);
+    return {
+      issuer,
+    };
+  }
+  @UseGuards(AuthGuard)
+  @Post('issuers/:issuerId/confirm-request')
+  async confirmIssuerRequest(
+    @GetUser() user: User,
+    @Param('issuerId', ParseIntPipe) issuerId: number,
+  ) {
+    await this.usersService.createConnection(issuerId, user);
+  }
+
   @Get('check/:clerkId')
   async getUserByClerkId(@Param('clerkId') clerkId: string) {
     return this.usersService.getByClerkId(clerkId);
@@ -58,29 +155,6 @@ export class UsersController {
   @Get('nonce')
   async provideNonceOfUser(@GetUser() user: User) {
     return this.usersService.provideNonceForUser(user.clerkId);
-  }
-
-  @UseGuards(AuthGuard)
-  @Get('credentials')
-  async getEmailCredentialOfUser(@GetUser() user: User) {
-    const emailCredential =
-      await this.credentialsService.getEmailCredentialOfUser(user);
-    const walletCredential =
-      await this.credentialsService.getWalletCredentialOfUser(user);
-
-    const domainCredential =
-      await this.credentialsService.getDomainCredentialOfUser(user);
-
-    const didWebCredential =
-      await this.credentialsService.getDidWebCredentialOfUser(user);
-
-    return {
-      email: emailCredential,
-      wallet: walletCredential || null,
-      domain: domainCredential || null,
-      didWeb: didWebCredential || null,
-      // membership: MembershipCredential[].
-    };
   }
 
   @UseGuards(AuthGuard)
@@ -131,7 +205,7 @@ export class UsersController {
   createWellKnownForDidWeb(
     @GetUser() user: User,
     @Body('didWeb') didWeb: string,
-  ) {
+  ): Promise<CreateWellKnownForDidWebResponse> {
     return this.usersService.receiveAndUpdateDidWebWellKnown(user, didWeb);
   }
 

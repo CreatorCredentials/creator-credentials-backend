@@ -1,21 +1,15 @@
 import {
   Controller,
   Get,
-  Post,
   Param,
-  Query,
   NotFoundException,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
 import {
-  CreateDidWebJsonFileResponse,
   GetCreatorCredentialsResponse,
-  GetCreatorIssuersResponse,
   GetCredentialsRequestDetailsResponse,
-  GetIssuerCreatorsResponse,
   GetIssuerCredentialsResponse,
-  GetIssuerDetailsWithCredentialsResponse,
   GetIssuerProfileResponse,
   GetIssuersBySelectedCredentialsResponse,
   GetRequestableCredentialsResponse,
@@ -27,9 +21,7 @@ import {
   ISSUER_PROFILE,
   MOCK_CREATOR_CREDENTIALS,
   MOCK_ISSUER_CREDENTIALS_FOR_RESPONSE,
-  DID_WEB_JSON_FILE,
 } from './mocks.constants';
-import { CreatorVerificationStatus } from 'src/shared/typings/CreatorVerificationStatus';
 import { VerifiedCredentialsUnion } from 'src/shared/typings/Credentials';
 
 // @Controller('mocks')
@@ -42,18 +34,7 @@ export class MocksController {
     return 'test mock string';
   }
 
-  @Get('/issuer/creators')
-  getIssuerCreators(
-    @Query('status') status: string = CreatorVerificationStatus.Accepted,
-    @Query('search') search: string = '',
-  ): GetIssuerCreatorsResponse {
-    const filteredCreators = MOCK_CREATORS.filter(
-      (creator) => creator.status === status && creator.title.includes(search),
-    );
-    return { creators: filteredCreators };
-  }
-
-  @Get('/issuer/creators/:creatorId')
+  // @Get('/issuer/creators/:creatorId')
   getIssuerCreatorById(
     @Param('creatorId') creatorId: string,
   ): GetCredentialsRequestDetailsResponse {
@@ -70,63 +51,17 @@ export class MocksController {
     };
   }
 
-  @Post('issuer/creators/accept')
-  @HttpCode(HttpStatus.CREATED)
-  acceptCreatorConnection() {}
-
-  @Post('issuer/creators/reject')
-  @HttpCode(HttpStatus.CREATED)
-  rejectCreatorConnection() {}
-
-  @Get('creator/issuers')
-  getCreatorIssuers(): GetCreatorIssuersResponse {
-    return {
-      issuers: MOCK_ISSUERS,
-    };
-  }
-
-  @Get('creator/issuers/:issuerId')
-  getCreatorIssuerById(
-    @Param('issuerId') issuerId: string,
-  ): GetIssuerDetailsWithCredentialsResponse {
-    const issuerData = MOCK_ISSUERS.find((issuer) => issuer.id === issuerId);
-
-    if (!issuerData) {
-      throw new NotFoundException();
-    }
-
-    return {
-      issuer: issuerData,
-    };
-  }
-
-  @Post('creator/issuers/:issuerId/confirm-request')
-  @HttpCode(HttpStatus.CREATED)
-  confirmCreatorToIssuerConnection(@Param('issuerId') issuerId: string) {}
-
   @Get('issuer/profile')
   getIssuerProfile(): GetIssuerProfileResponse {
     return ISSUER_PROFILE;
   }
 
-  @Get('users/credentials')
+  // @Get('users/credentials')
   getCreatorCredentials(): GetCreatorCredentialsResponse {
     return MOCK_CREATOR_CREDENTIALS;
   }
 
-  @Post('verification/did-web/create-file')
-  @HttpCode(HttpStatus.CREATED)
-  createDidWebJsonFile(): CreateDidWebJsonFileResponse {
-    return {
-      jsonFileContent: DID_WEB_JSON_FILE,
-    };
-  }
-
-  @Post('verification/did-web/confirm-upload')
-  @HttpCode(HttpStatus.CREATED)
-  confirmDidWebJsonFileUpload() {}
-
-  @Get('creator/credentials/issuers')
+  // @Get('creator/credentials/issuers')
   getIssuersBySelectedCredentials(): GetIssuersBySelectedCredentialsResponse {
     const issuerData = [MOCK_ISSUERS[0], MOCK_ISSUERS[3]];
 
@@ -163,12 +98,12 @@ export class MocksController {
     };
   }
 
-  @Get('issuer/credentials')
+  // @Get('issuer/credentials')
   getIssuerCredentials(): GetIssuerCredentialsResponse {
     return MOCK_ISSUER_CREDENTIALS_FOR_RESPONSE;
   }
 
-  @Post('creator/credentials/request')
+  // @Post('creator/credentials/request')
   @HttpCode(HttpStatus.CREATED)
   sendCredentialsRequest() {}
 }

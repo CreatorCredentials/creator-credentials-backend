@@ -1,23 +1,19 @@
-import {
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DeleteResult, Repository } from 'typeorm';
+import { ArrayContains, DeleteResult, Repository } from 'typeorm';
 import { CreateEmailCredentialDto } from './dto/create-email-credential.dto';
-import {
-  Credential,
-  CredentialType,
-  CredentialVerificationStatus,
-} from './credential.entity';
+import { Credential } from './credential.entity';
 import * as jose from 'jose';
 import { User } from 'src/users/user.entity';
 import { v4 as uuidv4 } from 'uuid';
-import { formatCredential } from './credentials.utils';
 import { CreateWalletCredentialDto } from './dto/create-wallet-credential.dto';
 import { CreateDomainCredentialDto } from './dto/create-domain-credential.dto';
 import { CreateDidWebCredentialDto } from './dto/create-didweb-credential.dto';
+import { CredentialType } from 'src/shared/typings/CredentialType';
+import { CredentialVerificationStatus } from 'src/shared/typings/CredentialVerificationStatus';
+import { CreateMemberCredentialDto } from './dto/create-member-credential.dto';
+import { MembershipCredential } from 'src/shared/typings/Credentials';
+import { generateMemberCredentialObjectAndJWS } from './credentials.helpers';
 
 @Injectable()
 export class CredentialsService {
@@ -32,36 +28,27 @@ export class CredentialsService {
     });
   }
 
-  async getEmailCredentialOfUser(user: User): Promise<Credential[]> {
-    const credential = await this.credentialsRepository.findOne({
-      where: { userId: user.id, credentialType: CredentialType.EMail },
+  async getAllIssuersMemberCredentialsWithCreators(
+    issuerId: number,
+    status: CredentialVerificationStatus = CredentialVerificationStatus.Success,
+  ): Promise<Credential[]> {
+    const credentials = await this.credentialsRepository.find({
+      where: { issuerId, credentialStatus: status },
+      relations: ['user'],
     });
 
-    return credential && formatCredential(credential);
+    return credentials;
   }
 
-  async getWalletCredentialOfUser(user: User): Promise<Credential[]> {
-    const credential = await this.credentialsRepository.findOne({
-      where: { userId: user.id, credentialType: CredentialType.Wallet },
+  async getCredentialsOfUserByType(
+    user: User,
+    credentialType: CredentialType,
+  ): Promise<Credential[]> {
+    const credential = await this.credentialsRepository.find({
+      where: { userId: user.id, credentialType },
     });
 
-    return credential && formatCredential(credential);
-  }
-
-  async getDomainCredentialOfUser(user: User): Promise<Credential[]> {
-    const credential = await this.credentialsRepository.findOne({
-      where: { userId: user.id, credentialType: CredentialType.Domain },
-    });
-
-    return credential && formatCredential(credential);
-  }
-
-  async getDidWebCredentialOfUser(user: User): Promise<Credential[]> {
-    const credential = await this.credentialsRepository.findOne({
-      where: { userId: user.id, credentialType: CredentialType.DidWeb },
-    });
-
-    return credential && formatCredential(credential);
+    return credential;
   }
 
   async getAllCredentialsOfUser(user: User): Promise<Credential[]> {
@@ -69,7 +56,7 @@ export class CredentialsService {
       where: { userId: user.id },
     });
 
-    return credentials.map(formatCredential);
+    return credentials;
   }
 
   async removeEmailCredential(user: User): Promise<DeleteResult> {
@@ -100,6 +87,14 @@ export class CredentialsService {
     });
 
     return this.credentialsRepository.delete({ id: credential?.id });
+  }
+
+  async removeMemberCredential(credentialId: number): Promise<DeleteResult> {
+    return this.deleteCredential(credentialId);
+  }
+
+  async deleteCredential(credentialId: number): Promise<DeleteResult> {
+    return this.credentialsRepository.delete({ id: credentialId });
   }
 
   async createWalletCredential(
@@ -421,7 +416,7 @@ export class CredentialsService {
       type: [
         'VerifiableCredential',
         'VerifiableAttestation',
-        'VerifiableDomain',
+        'VerifiableDidWeb',
       ],
       issuer: `did:web:${credentialsHost}`,
       validFrom: now.toISOString(),
@@ -467,6 +462,68 @@ export class CredentialsService {
       token: jws,
       user,
     });
+
+    await this.credentialsRepository.save(credential, { reload: true });
+
+    const result = credential.credentialObject;
+    result.proof = {
+      type: 'JwtProof2020',
+      jwt: jws,
+    };
+    return result;
+  }
+
+  async createPendingMemberCredential(
+    createMemberCredentialDto: CreateMemberCredentialDto,
+    user: User,
+    issuerId: number,
+  ): Promise<Credential> {
+    //TO DO prevent creation of new pending credential if credential exists at pending or accepted state
+    const credential = this.credentialsRepository.create({
+      email: createMemberCredentialDto.value,
+      value: createMemberCredentialDto.value,
+      issuerId: issuerId,
+      credentialType: CredentialType.Member,
+      credentialStatus: CredentialVerificationStatus.Pending,
+      credentialObject: {},
+      token: '',
+      user,
+    });
+
+    return await this.credentialsRepository.save(credential, { reload: true });
+  }
+
+  async createMemberCredential(
+    issuer: User,
+    credentialId: number,
+  ): Promise<Credential> {
+    const currentPendingMemberCredential =
+      await this.credentialsRepository.findOne({
+        where: {
+          credentialType: CredentialType.Member,
+          issuerId: issuer.id,
+          id: credentialId,
+          credentialStatus: CredentialVerificationStatus.Pending,
+        },
+      });
+
+    if (!currentPendingMemberCredential) {
+      throw new ConflictException(
+        'Member credential was not requested by user from this issuer.',
+      );
+    }
+
+    const { credentialObject, jws } =
+      await generateMemberCredentialObjectAndJWS({
+        value: currentPendingMemberCredential.value,
+        did: currentPendingMemberCredential.value,
+      });
+
+    const credential = currentPendingMemberCredential;
+
+    credential.credentialStatus = CredentialVerificationStatus.Success;
+    credential.credentialObject = credentialObject;
+    credential.token = jws;
 
     await this.credentialsRepository.save(credential, { reload: true });
 

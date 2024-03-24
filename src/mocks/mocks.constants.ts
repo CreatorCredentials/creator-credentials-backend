@@ -44,7 +44,7 @@ export const MOCK_ISSUER_CREDENTIALS_FOR_RESPONSE: GetIssuerCredentialsResponse 
 export const MOCK_CREATOR_CREDENTIALS: CreatorCredentials = {
   email: {
     id: 'email-credential-id',
-    type: CredentialType.Email,
+    type: CredentialType.EMail,
     data: {
       address: 'testcreator@test.com',
       companyName: 'Creator Credentials B.V.',
@@ -96,7 +96,7 @@ export const ISSUER_PROFILE = {
 export const MOCK_ISSUER_CREDENTIALS: VerifiedCredentialsUnion[] = [
   {
     id: '1',
-    type: CredentialType.Email,
+    type: CredentialType.EMail,
     data: {
       address: 'testcreator@test.com',
       companyName: 'Creator Credentials B.V.',
@@ -156,7 +156,7 @@ export const MOCK_ISSUERS: IssuerWithVerifiedCredentials[] = [
   },
   {
     id: '3',
-    name: 'Liccium',
+    name: 'Liccium B.V.',
     description: `Liccium helps creators to inseparably bind public and verifiable claims to their content.`,
     imageUrl: '/images/liccium.svg',
     data: {
