@@ -156,13 +156,10 @@ export class UsersService {
     //       c.creatorId === user.id && c.status === ConnectionStatus.Accepted,
     //   ),
     // );
-    // console.log(issuers);
-    // console.log(this.mapUsersToIssuerResponse(filteredIssuer, user));
     return this.mapUsersToIssuerResponse(issuers, user);
   }
 
   private mapUserToIssuerResponse(issuer: User, creator: User) {
-    console.log('mapUserToIssuerResponse', issuer);
     const statusesToCheck = [
       ConnectionStatus.Accepted,
       ConnectionStatus.Requested,
@@ -173,8 +170,6 @@ export class UsersService {
         c.creatorId === creator.id &&
         statusesToCheck.find((s) => s === c.status),
     );
-
-    console.log('mapUserToIssuerResponse connections', connections);
 
     let status = IssuerConnectionStatus.NotStarted;
     connections.every((c) => {

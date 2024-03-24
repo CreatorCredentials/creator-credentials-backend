@@ -138,7 +138,6 @@ export class CredentialsController {
     if (user.clerkRole !== ClerkRole.Creator) {
       throw new NotFoundException('This api is only for creators.');
     }
-    console.log(issuerId);
     return this.credentialsService.createPendingMemberCredential(
       { value: user.domain, did: user.domain },
       user,
