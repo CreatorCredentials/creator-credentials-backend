@@ -14,10 +14,16 @@ export class ConnectionsService {
   private async getExistingConnection(issuer: User, creator: User) {
     return this.connectionRepository.findOne({
       where: [
-        { issuer: issuer, creator: creator },
-        { issuer: creator, creator: issuer },
-        { status: ConnectionStatus.Requested },
-        { status: ConnectionStatus.Accepted },
+        {
+          issuerId: issuer.id,
+          creatorId: creator.id,
+          status: ConnectionStatus.Requested,
+        },
+        {
+          issuerId: issuer.id,
+          creatorId: creator.id,
+          status: ConnectionStatus.Accepted,
+        },
       ],
     });
   }
