@@ -10,7 +10,7 @@ export const AVAILABLE_CREDENTIALS: MembershipCredential[] = [
     id: '1',
     type: CredentialType.Member,
     data: {
-      companyName: 'Creator Credentials B.V.',
+      companyName: 'Liccium B.V.',
       requirements: 'Info about requirements',
     },
     status: CredentialVerificationStatus.Success,

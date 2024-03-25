@@ -10,6 +10,7 @@ import { Credential } from './credential.entity';
 import { CredentialType } from 'src/shared/typings/CredentialType';
 import { NotFoundException } from '@nestjs/common';
 
+const DEFAUTL_COMPANY_NAME = 'Liccium B.V.';
 export function formatCredentialForUnion(
   credential: Credential,
 ): VerifiedCredentialsUnion {
@@ -38,7 +39,7 @@ export function formatEmailCredential(credential: Credential): EmailCredential {
     type: CredentialType.EMail,
     data: {
       address: credential.email || 'wrong',
-      companyName: 'Creator Credentials B.V.',
+      companyName: DEFAUTL_COMPANY_NAME,
       requirements: 'Info about requirements',
       credentialObject: credential,
     },
@@ -54,7 +55,7 @@ export function formatWalletCredential(
     type: CredentialType.Wallet,
     data: {
       address: credential.email || 'wrong',
-      companyName: 'Creator Credentials B.V.',
+      companyName: DEFAUTL_COMPANY_NAME,
       requirements: 'Info about requirements',
       credentialObject: credential,
     },
@@ -70,7 +71,7 @@ export function formatDomainCredential(
     type: CredentialType.Domain,
     data: {
       domain: credential.email || 'wrong',
-      companyName: 'Creator Credentials B.V.',
+      companyName: DEFAUTL_COMPANY_NAME,
       requirements: 'Info about requirements',
       credentialObject: credential,
     },
@@ -86,7 +87,7 @@ export function formatDidWebCredential(
     type: CredentialType.DidWeb,
     data: {
       domain: credential.email || 'wrong',
-      companyName: 'Creator Credentials B.V.',
+      companyName: DEFAUTL_COMPANY_NAME,
       requirements: 'Info about requirements',
       credentialObject: credential,
     },
@@ -102,7 +103,7 @@ export function formatMemberCredential(
     type: CredentialType.Member,
     data: {
       validity: credential.value || 'wrong',
-      companyName: 'Creator Credentials B.V.',
+      companyName: DEFAUTL_COMPANY_NAME,
       requirements: 'Info about requirements',
       credentialObject: credential,
     },

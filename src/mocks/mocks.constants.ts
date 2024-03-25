@@ -10,6 +10,7 @@ import { IssuerConnectionStatus } from 'src/shared/typings/IssuerConnectionStatu
 import { Creator } from 'src/shared/typings/Creator';
 import { GetIssuerCredentialsResponse } from './mocks.types';
 
+const DEFAUTL_COMPANY_NAME = 'Liccium B.V.';
 export const MOCK_ISSUER_CREDENTIALS_FOR_RESPONSE: GetIssuerCredentialsResponse =
   {
     credentials: {
@@ -47,7 +48,7 @@ export const MOCK_CREATOR_CREDENTIALS: CreatorCredentials = {
     type: CredentialType.EMail,
     data: {
       address: 'testcreator@test.com',
-      companyName: 'Creator Credentials B.V.',
+      companyName: DEFAUTL_COMPANY_NAME,
       requirements: 'Info about requirements',
     },
     status: CredentialVerificationStatus.Success,
@@ -57,7 +58,7 @@ export const MOCK_CREATOR_CREDENTIALS: CreatorCredentials = {
     type: CredentialType.Wallet,
     data: {
       address: '0x171147d85c5t54badb920fc7gfs6822e0132470c',
-      companyName: 'Creator Credentials B.V.',
+      companyName: DEFAUTL_COMPANY_NAME,
       requirements: 'Info about requirements',
     },
     status: CredentialVerificationStatus.Success,
@@ -68,7 +69,7 @@ export const MOCK_CREATOR_CREDENTIALS: CreatorCredentials = {
       id: 'membership-credential-id-1',
       type: CredentialType.Member,
       data: {
-        companyName: 'Creator Credentials B.V.',
+        companyName: DEFAUTL_COMPANY_NAME,
         requirements: 'Info about requirements',
       },
       status: CredentialVerificationStatus.Success,
@@ -99,7 +100,7 @@ export const MOCK_ISSUER_CREDENTIALS: VerifiedCredentialsUnion[] = [
     type: CredentialType.EMail,
     data: {
       address: 'testcreator@test.com',
-      companyName: 'Creator Credentials B.V.',
+      companyName: DEFAUTL_COMPANY_NAME,
       requirements: 'Info about requirements',
     },
     status: CredentialVerificationStatus.Success,
@@ -109,7 +110,7 @@ export const MOCK_ISSUER_CREDENTIALS: VerifiedCredentialsUnion[] = [
     type: CredentialType.Wallet,
     data: {
       address: '0x171147d85c5t54badb920fc7gfs6822e0132470c',
-      companyName: 'Creator Credentials B.V.',
+      companyName: DEFAUTL_COMPANY_NAME,
       requirements: 'Info about requirements',
     },
     status: CredentialVerificationStatus.Success,
@@ -118,7 +119,7 @@ export const MOCK_ISSUER_CREDENTIALS: VerifiedCredentialsUnion[] = [
     id: '3',
     type: CredentialType.Member,
     data: {
-      companyName: 'Creator Credentials B.V.',
+      companyName: DEFAUTL_COMPANY_NAME,
       requirements: 'Info about requirements',
     },
     status: CredentialVerificationStatus.Success,
@@ -128,7 +129,7 @@ export const MOCK_ISSUER_CREDENTIALS: VerifiedCredentialsUnion[] = [
 export const MOCK_ISSUERS: IssuerWithVerifiedCredentials[] = [
   {
     id: '1',
-    name: 'Creator Credentials B.V.',
+    name: 'Liccium test B.V.',
     description:
       'Based in the Netherlands, supporting creators credentials worldwide',
     imageUrl: '/images/brand.svg',
