@@ -14,10 +14,8 @@ export function checkSignatureAndThrow(
   nonce: string,
   address: string,
   signedMessage: string,
+  termsAndConditionsUrl: string,
 ) {
-  const termsAndConditionsUrl = this.configService.getOrThrow(
-    'TERMS_AND_CONDITIONS_URL',
-  );
   const message = `Welcome to Creator Credentials app!\n\nClick to sign-in and accept the Terms of Service (${termsAndConditionsUrl}).\n\nThis request will not trigger a blockchain transaction or cost any gas fees.\n\nYour wallet address:\n${address}\n\nNonce:\n${nonce}`;
 
   // Check if signature is valid

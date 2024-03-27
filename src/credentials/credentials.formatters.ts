@@ -41,7 +41,14 @@ export function formatEmailCredential(credential: Credential): EmailCredential {
       address: credential.email || 'wrong',
       companyName: DEFAUTL_COMPANY_NAME,
       requirements: 'Info about requirements',
-      credentialObject: credential,
+      credentialObject: {
+        proof: {
+          type: 'JwtProof2020',
+          jwt: credential.token,
+        },
+        ...credential.credentialObject,
+        userId: credential.userId,
+      },
     },
   };
 }
@@ -57,7 +64,14 @@ export function formatWalletCredential(
       address: credential.email || 'wrong',
       companyName: DEFAUTL_COMPANY_NAME,
       requirements: 'Info about requirements',
-      credentialObject: credential,
+      credentialObject: {
+        proof: {
+          type: 'JwtProof2020',
+          jwt: credential.token,
+        },
+        ...credential.credentialObject,
+        userId: credential.userId,
+      },
     },
   };
 }
@@ -73,7 +87,14 @@ export function formatDomainCredential(
       domain: credential.email || 'wrong',
       companyName: DEFAUTL_COMPANY_NAME,
       requirements: 'Info about requirements',
-      credentialObject: credential,
+      credentialObject: {
+        proof: {
+          type: 'JwtProof2020',
+          jwt: credential.token,
+        },
+        ...credential.credentialObject,
+        userId: credential.userId,
+      },
     },
   };
 }
@@ -89,7 +110,14 @@ export function formatDidWebCredential(
       domain: credential.email || 'wrong',
       companyName: DEFAUTL_COMPANY_NAME,
       requirements: 'Info about requirements',
-      credentialObject: credential,
+      credentialObject: {
+        proof: {
+          type: 'JwtProof2020',
+          jwt: credential.token,
+        },
+        ...credential.credentialObject,
+        userId: credential.userId,
+      },
     },
   };
 }
@@ -105,7 +133,14 @@ export function formatMemberCredential(
       validity: credential.value || 'wrong',
       companyName: DEFAUTL_COMPANY_NAME,
       requirements: 'Info about requirements',
-      credentialObject: credential,
+      credentialObject: {
+        proof: {
+          type: 'JwtProof2020',
+          jwt: credential.token,
+        },
+        ...credential.credentialObject,
+        userId: credential.userId,
+      },
     },
   };
 }

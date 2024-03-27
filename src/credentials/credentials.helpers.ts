@@ -2,7 +2,7 @@ import * as jose from 'jose';
 import { v4 as uuidv4 } from 'uuid';
 import { CreateMemberCredentialDto } from './dto/create-member-credential.dto';
 
-const credentialsHost = 'creatorcredentials.dev';
+const credentialsHost = 'liccium.com';
 
 export async function generateMemberCredentialObjectAndJWS(
   createMemberCredentialDto: CreateMemberCredentialDto,

@@ -12,8 +12,9 @@ import { CreateDidWebCredentialDto } from './dto/create-didweb-credential.dto';
 import { CredentialType } from 'src/shared/typings/CredentialType';
 import { CredentialVerificationStatus } from 'src/shared/typings/CredentialVerificationStatus';
 import { CreateMemberCredentialDto } from './dto/create-member-credential.dto';
-import { MembershipCredential } from 'src/shared/typings/Credentials';
 import { generateMemberCredentialObjectAndJWS } from './credentials.helpers';
+
+const credentialsHost = 'liccium.com';
 
 @Injectable()
 export class CredentialsService {
@@ -101,8 +102,6 @@ export class CredentialsService {
     createWalletCredentialDto: CreateWalletCredentialDto,
     user: User,
   ): Promise<Credential> {
-    const credentialsHost = 'creatorcredentials.dev';
-
     const currentWalletCredential = await this.credentialsRepository.findOne({
       where: { credentialType: CredentialType.Wallet, userId: user.id },
     });
@@ -129,7 +128,7 @@ export class CredentialsService {
       validFrom: now.toISOString(),
       validUntil: end.toISOString(),
       credentialSubject: {
-        id: `did:key:${createWalletCredentialDto.did}`,
+        id: `did:key:${user.didKey}`,
         walletAddress: createWalletCredentialDto.publicAddress,
       },
       credentialSchema: [
@@ -184,8 +183,6 @@ export class CredentialsService {
     createEmailCredentialDto: CreateEmailCredentialDto,
     user: User,
   ): Promise<Credential> {
-    const credentialsHost = 'creatorcredentials.dev';
-
     const currentEmailCredential = await this.credentialsRepository.findOne({
       where: { credentialType: CredentialType.EMail, userId: user.id },
     });
@@ -212,7 +209,7 @@ export class CredentialsService {
       validFrom: now.toISOString(),
       validUntil: end.toISOString(),
       credentialSubject: {
-        id: `did:key:${createEmailCredentialDto.did}`,
+        id: `did:key:${user.didKey}`,
         email: createEmailCredentialDto.email,
       },
       credentialSchema: [
@@ -283,8 +280,6 @@ export class CredentialsService {
     createDomainCredentialDto: CreateDomainCredentialDto,
     user: User,
   ): Promise<Credential> {
-    const credentialsHost = 'creatorcredentials.dev';
-
     const currentDomainCredential = await this.credentialsRepository.findOne({
       where: { credentialType: CredentialType.Domain, userId: user.id },
     });
@@ -317,7 +312,7 @@ export class CredentialsService {
       validFrom: now.toISOString(),
       validUntil: end.toISOString(),
       credentialSubject: {
-        id: `did:key:${createDomainCredentialDto.did}`,
+        id: `did:key:${user.didKey}`,
         domain: createDomainCredentialDto.domain,
       },
       credentialSchema: [
@@ -388,8 +383,6 @@ export class CredentialsService {
     createDidWebCredentialDto: CreateDidWebCredentialDto,
     user: User,
   ): Promise<Credential> {
-    const credentialsHost = 'creatorcredentials.dev';
-
     const currentDidWebCredential = await this.credentialsRepository.findOne({
       where: { credentialType: CredentialType.DidWeb, userId: user.id },
     });
@@ -422,7 +415,7 @@ export class CredentialsService {
       validFrom: now.toISOString(),
       validUntil: end.toISOString(),
       credentialSubject: {
-        id: `did:key:${createDidWebCredentialDto.did}`,
+        id: `did:key:${user.didKey}`,
         didWeb: createDidWebCredentialDto.didWeb,
       },
       credentialSchema: [
@@ -505,6 +498,7 @@ export class CredentialsService {
           id: credentialId,
           credentialStatus: CredentialVerificationStatus.Pending,
         },
+        relations: ['user'],
       });
 
     if (!currentPendingMemberCredential) {
@@ -516,7 +510,7 @@ export class CredentialsService {
     const { credentialObject, jws } =
       await generateMemberCredentialObjectAndJWS({
         value: currentPendingMemberCredential.value,
-        did: currentPendingMemberCredential.value,
+        did: currentPendingMemberCredential.user.didKey,
       });
 
     const credential = currentPendingMemberCredential;

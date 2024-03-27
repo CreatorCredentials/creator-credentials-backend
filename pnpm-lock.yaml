@@ -50,6 +50,9 @@ dependencies:
   jose:
     specifier: 5.2.0
     version: 5.2.0
+  keygen:
+    specifier: 0.4.0
+    version: 0.4.0
   pg:
     specifier: 8.11.3
     version: 8.11.3
@@ -4287,6 +4290,10 @@ packages:
       node-addon-api: 2.0.2
       node-gyp-build: 4.8.0
       readable-stream: 3.6.2
+    dev: false
+
+  /keygen@0.4.0:
+    resolution: {integrity: sha512-Fam+Q+CaIsVWneZCBYfea6SQSTEHE4mU8bkqkT7eDOWhLEgOhDZvADDxi6q6dFLtWbeWJ9Z8YgVhBW5WhkH7Xw==}
     dev: false
 
   /keyv@4.5.4:

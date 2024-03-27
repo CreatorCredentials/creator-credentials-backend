@@ -88,6 +88,9 @@ export class User extends BaseEntity {
   })
   domainPendingVerifcation: boolean;
 
+  @Column({ unique: true, name: 'did_key', nullable: false })
+  didKey: string;
+
   @Column({ unique: true, name: 'did_web', nullable: true })
   didWeb: string;
 

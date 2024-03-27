@@ -39,6 +39,7 @@ import {
   generateWellKnownForDidWeb,
 } from 'src/shared/helpers';
 import { mapIssuerConnectionToCreator } from './users.formatters';
+import * as keygen from 'keygen';
 
 @Injectable()
 export class UsersService {
@@ -63,13 +64,15 @@ export class UsersService {
     const nonce = this.generateNonce();
     newUser.nonce = nonce;
 
+    newUser.didKey = keygen.hex(keygen.large);
+
     const user = await this.userRepository.save(newUser, { reload: true });
     const userFromClerk = await users.getUser(createUserDto.clerkId);
 
     const email = userFromClerk.emailAddresses[0].emailAddress;
 
     await this.credentialsService.createEmailCredential(
-      { email, did: email },
+      { email, did: user.didKey },
       user,
     );
     return user;
@@ -89,6 +92,11 @@ export class UsersService {
     const connection = user.issuedConnections.find(
       (c) => c.creatorId === creatorId,
     );
+    if (!connection) {
+      throw new NotFoundException(
+        'This creator is not related to this issuer yet.',
+      );
+    }
     const creator = await this.userRepository.findOne({
       where: {
         id: connection.creatorId,
@@ -242,9 +250,18 @@ export class UsersService {
       );
     }
 
+    const termsAndConditionsUrl = this.configService.getOrThrow(
+      'TERMS_AND_CONDITIONS_URL',
+    );
+
     const user = await this.getByClerkId(clerkId);
 
-    checkSignatureAndThrow(user.nonce, address, signedMessage);
+    checkSignatureAndThrow(
+      user.nonce,
+      address,
+      signedMessage,
+      termsAndConditionsUrl,
+    );
 
     user.publicAddress = address;
     const updatedUser = await this.userRepository.save(user, { reload: true });
