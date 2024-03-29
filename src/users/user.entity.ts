@@ -6,11 +6,14 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
   OneToMany,
+  JoinTable,
+  ManyToMany,
 } from 'typeorm';
 import { Credential } from 'src/credentials/credential.entity';
 import { Exclude } from 'class-transformer';
 import { Connection } from 'src/connections/connection.entity';
 import { CredentialType } from 'src/shared/typings/CredentialType';
+import { Template } from 'src/templates/template.entity';
 export enum ClerkRole {
   Issuer = 'issuer',
   Creator = 'creator',
@@ -30,6 +33,17 @@ export class User extends BaseEntity {
   @Exclude()
   @Column({ name: 'nonce', default: '' })
   nonce: string;
+
+  @ManyToMany(() => Template, (template) => template.users, { eager: true })
+  @JoinTable({
+    name: 'users_templates',
+    joinColumn: { name: 'user_id', referencedColumnName: 'id' },
+    inverseJoinColumn: {
+      name: 'template_id',
+      referencedColumnName: 'id',
+    },
+  })
+  templates: Template[];
 
   @Column({
     name: 'clerk_role',

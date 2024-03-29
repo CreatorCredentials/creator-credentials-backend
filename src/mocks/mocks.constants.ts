@@ -87,7 +87,7 @@ export const MOCK_CREATOR_CREDENTIALS: CreatorCredentials = {
 };
 
 export const ISSUER_PROFILE = {
-  companyName: 'Liccium Ltd',
+  companyName: 'Liccium Ltd wrong test',
   description:
     'Liccium Trust Engine, supporting creators to make verifiable declarations of original content',
   domain: 'liccium.com',

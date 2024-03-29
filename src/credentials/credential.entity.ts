@@ -12,6 +12,7 @@ import { Exclude } from 'class-transformer';
 import { User } from 'src/users/user.entity';
 import { CredentialType } from 'src/shared/typings/CredentialType';
 import { CredentialVerificationStatus } from 'src/shared/typings/CredentialVerificationStatus';
+import { Template } from 'src/templates/template.entity';
 
 @Entity()
 export class Credential extends BaseEntity {
@@ -53,6 +54,11 @@ export class Credential extends BaseEntity {
   @Exclude()
   @Column({ name: 'user_id' })
   userId: number;
+
+  // Many Credentials belong to one Template
+  @ManyToOne(() => Template, (template) => template.credentials)
+  @JoinColumn({ name: 'template_id' })
+  template: Template;
 
   @Column({
     name: 'credential_type',
