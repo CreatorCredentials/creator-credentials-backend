@@ -115,6 +115,18 @@ export class UsersController {
   }
 
   @UseGuards(AuthGuard)
+  @Post('creators/:creatorId/revoke')
+  async revokeCreatorConnection(
+    @GetUser() user: User,
+    @Param('creatorId', ParseIntPipe) creatorId: number,
+  ) {
+    if (user.clerkRole !== ClerkRole.Issuer) {
+      throw new NotFoundException('This api is only for issuers.');
+    }
+    await this.usersService.revokeConnection(creatorId, user);
+  }
+
+  @UseGuards(AuthGuard)
   @Get('issuers')
   async getIssuers(@GetUser() user: User) {
     if (user.clerkRole !== ClerkRole.Creator) {
