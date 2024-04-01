@@ -499,4 +499,14 @@ export class UsersService {
     });
     await this.connectionsService.createConnection([issuer, user]);
   }
+
+  async revokeConnection(creatorId: number, user: User) {
+    const creator = await this.userRepository.findOne({
+      where: {
+        clerkRole: ClerkRole.Creator,
+        id: creatorId,
+      },
+    });
+    await this.connectionsService.revokeConnection([creator, user]);
+  }
 }
