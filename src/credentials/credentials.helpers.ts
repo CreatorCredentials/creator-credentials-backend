@@ -97,13 +97,13 @@ function derToBase64(derBuffer) {
 }
 // Function to sign JWT with x5c header claim
 export async function signJWTWithX5c(payload) {
-  const privateKeyPEM = process.env.HALCOM_CERT_PRIVATE_KEY.replaceAll(
-    '\\n',
-    '\n',
-  );
-  const certFilePath = './certificates/LICCIUM.der'; // Path to the certificate file
-
   try {
+    const privateKeyPEM = process.env.HALCOM_CERT_PRIVATE_KEY.replaceAll(
+      '\\n',
+      '\n',
+    );
+    const certFilePath = './certificates/LICCIUM.der'; // Path to the certificate file
+
     // Read the X.509 certificate from DER file
     const certDER = await loadDerFile(certFilePath);
     const certB64 = derToBase64(certDER);
