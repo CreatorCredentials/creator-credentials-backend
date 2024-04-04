@@ -508,10 +508,13 @@ export class CredentialsService {
     }
 
     const { credentialObject, jws } =
-      await generateMemberCredentialObjectAndJWS({
-        value: currentPendingMemberCredential.value,
-        did: currentPendingMemberCredential.user.didKey,
-      });
+      await generateMemberCredentialObjectAndJWS(
+        {
+          value: currentPendingMemberCredential.value,
+          did: currentPendingMemberCredential.user.didKey,
+        },
+        currentPendingMemberCredential.user,
+      );
 
     const credential = currentPendingMemberCredential;
 
