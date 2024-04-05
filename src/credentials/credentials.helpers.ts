@@ -40,8 +40,8 @@ export async function generateMemberCredentialObjectAndJWS(
     validFrom: now.toISOString(),
     validUntil: end.toISOString(),
     credentialSubject: {
-      id: `did:key:${creator.didKey}`,
-      sameAs: `did:ethr:${creator.publicAddress}`,
+      sameAs: `did:key:${creator.didKey}`,
+      id: `did:ethr:${creator.publicAddress}`,
       memberOf: 'did:web:liccium.com',
     },
     credentialSchema: [
