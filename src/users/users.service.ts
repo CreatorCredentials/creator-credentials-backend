@@ -90,7 +90,7 @@ export class UsersService {
     credentials: VerifiedCredentialsUnion[];
   }> {
     const connection = user.issuedConnections.find(
-      (c) => c.creatorId === creatorId,
+      (c) => c.creatorId === creatorId && c.status !== ConnectionStatus.Revoked,
     );
     if (!connection) {
       throw new NotFoundException(
