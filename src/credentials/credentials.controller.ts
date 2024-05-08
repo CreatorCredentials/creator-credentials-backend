@@ -139,7 +139,7 @@ export class CredentialsController {
       throw new NotFoundException('This api is only for creators.');
     }
     return this.credentialsService.createPendingMemberCredential(
-      { value: user.domain, did: user.domain },
+      { value: user.name, did: user.name },
       user,
       issuerId,
     );
