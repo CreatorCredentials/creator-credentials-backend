@@ -26,12 +26,6 @@ export async function generateMemberCredentialObjectAndJWS(
   const end = new Date();
   end.setFullYear(end.getFullYear() + 1);
 
-  if (!creator.publicAddress) {
-    throw new NotFoundException(
-      'Only creator with verified address could receive member credentials',
-    );
-  }
-
   const credentialObject = {
     '@context': ['https://www.w3.org/ns/credentials/v2'],
     id: `urn:uuid:${uuidv4()}`,
@@ -40,8 +34,7 @@ export async function generateMemberCredentialObjectAndJWS(
     validFrom: now.toISOString(),
     validUntil: end.toISOString(),
     credentialSubject: {
-      sameAs: `did:key:${creator.didKey}`,
-      id: `did:ethr:${creator.publicAddress}`,
+      id: `did:key:${creator.didKey}`,
       memberOf: 'did:web:liccium.com',
     },
     credentialSchema: [

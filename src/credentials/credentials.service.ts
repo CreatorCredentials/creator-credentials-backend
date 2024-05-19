@@ -13,6 +13,7 @@ import { CredentialType } from 'src/shared/typings/CredentialType';
 import { CredentialVerificationStatus } from 'src/shared/typings/CredentialVerificationStatus';
 import { CreateMemberCredentialDto } from './dto/create-member-credential.dto';
 import { generateMemberCredentialObjectAndJWS } from './credentials.helpers';
+import { CreateConnectCredentialDto } from './dto/create-connect-credential.dto';
 
 const credentialsHost = 'liccium.com';
 
@@ -67,6 +68,15 @@ export class CredentialsService {
 
     return this.credentialsRepository.delete({ id: credential?.id });
   }
+
+  async removeConnectCredential(user: User): Promise<DeleteResult> {
+    const credential = await this.credentialsRepository.findOne({
+      where: { userId: user.id, credentialType: CredentialType.Connect },
+    });
+
+    return this.credentialsRepository.delete({ id: credential?.id });
+  }
+
   async removeWalletCredential(user: User): Promise<DeleteResult> {
     const credential = await this.credentialsRepository.findOne({
       where: { userId: user.id, credentialType: CredentialType.Wallet },
@@ -209,7 +219,7 @@ export class CredentialsService {
       validFrom: now.toISOString(),
       validUntil: end.toISOString(),
       credentialSubject: {
-        id: `did:key:${user.didKey}`,
+        id: user.didKey,
         email: createEmailCredentialDto.email,
       },
       credentialSchema: [
@@ -244,6 +254,87 @@ export class CredentialsService {
     const credential = await this.credentialsRepository.create({
       email: createEmailCredentialDto.email,
       credentialType: CredentialType.EMail,
+      credentialObject,
+      credentialStatus: CredentialVerificationStatus.Success,
+      token: jws,
+      user,
+    });
+
+    await this.credentialsRepository.save(credential, { reload: true });
+
+    const result = credential.credentialObject;
+    result.proof = {
+      type: 'JwtProof2020',
+      jwt: jws,
+    };
+    return result;
+  }
+
+  async createConnectCredential(
+    createConnectCredentialDto: CreateConnectCredentialDto,
+    user: User,
+  ): Promise<Credential> {
+    const currentConnectCredential = await this.credentialsRepository.findOne({
+      where: { credentialType: CredentialType.Connect, userId: user.id },
+    });
+
+    if (currentConnectCredential) {
+      throw new ConflictException(
+        'Connect credential already exists for this user.',
+      );
+    }
+
+    const now = new Date();
+    const end = new Date();
+    end.setFullYear(end.getFullYear() + 1);
+
+    const credentialObject = {
+      '@context': ['https://www.w3.org/ns/credentials/v2'],
+      id: `urn:uuid:${uuidv4()}`,
+      type: [
+        'VerifiableCredential',
+        'VerifiableAttestation',
+        'VerifiableDidConnect',
+      ],
+      issuer: `did:web:${credentialsHost}`,
+      validFrom: now.toISOString(),
+      validUntil: end.toISOString(),
+      credentialSubject: {
+        id: createConnectCredentialDto.didKey,
+        sameAs: createConnectCredentialDto.licciumDidKey,
+      },
+      credentialSchema: [
+        {
+          id: 'https://github.com/CreatorCredentials/specifications/blob/main/json-schema/verification-credentials/email/schema.json',
+          type: 'JsonSchema',
+        },
+      ],
+      termsOfUse: {
+        type: 'PresentationPolicy',
+        confidentialityLevel: 'restricted',
+        pii: 'sensitive',
+      },
+    };
+
+    const ecPrivateKey = await jose.importJWK(
+      {
+        kty: 'EC',
+        crv: 'P-256',
+        d: process.env.SIGNATURE_KEY_D,
+        x: process.env.SIGNATURE_KEY_X,
+        y: process.env.SIGNATURE_KEY_Y,
+      },
+      'ES256',
+    );
+    const jws = await new jose.CompactSign(
+      new TextEncoder().encode(JSON.stringify(credentialObject)),
+    )
+      .setProtectedHeader({ alg: 'ES256' })
+      .sign(ecPrivateKey);
+
+    const credential = await this.credentialsRepository.create({
+      email: createConnectCredentialDto.licciumDidKey,
+      credentialType: CredentialType.Connect,
       credentialObject,
       credentialStatus: CredentialVerificationStatus.Success,
       token: jws,
@@ -471,7 +562,8 @@ export class CredentialsService {
     user: User,
     issuerId: number,
   ): Promise<Credential> {
-    //TO DO prevent creation of new pending credential if credential exists at pending or accepted state
+    // TODO prevent creation of new pending credential if credential exists at pending
+    // or accepted state for the same creator and issuer pair
     const credential = this.credentialsRepository.create({
       email: createMemberCredentialDto.value,
       value: createMemberCredentialDto.value,

@@ -39,7 +39,10 @@ import {
   generateWellKnownForDidWeb,
 } from 'src/shared/helpers';
 import { mapIssuerConnectionToCreator } from './users.formatters';
-import * as keygen from 'keygen';
+import { CertificatesService } from 'src/certificates/certificates.service';
+import * as x509 from '@peculiar/x509';
+import * as crypto from 'crypto';
+import * as baseX from 'base-x';
 
 @Injectable()
 export class UsersService {
@@ -50,26 +53,85 @@ export class UsersService {
     private configService: ConfigService,
     private httpService: HttpService,
     private connectionsService: ConnectionsService,
+    private certificatesService: CertificatesService,
   ) {}
 
   private generateNonce() {
     return Math.floor(Math.random() * 1000000000).toString();
   }
 
+  async generateCertAndDidKey(user: User) {
+    const userFromClerk = await users.getUser(user.clerkId);
+    const email = userFromClerk.emailAddresses[0].emailAddress;
+    const subject = user.clerkId;
+    const countryName = 'EU';
+    const stateOrProvinceName = 'EU';
+    const localityName = 'DefaultLocality';
+    const organizationName = `${subject}`;
+
+    const organizationalUnitName = 'RNDBOB';
+    const commonName = `Root CA - ${subject}`;
+
+    const crlDistributionPoints = `URI:https://${subject}.com/crl.crl`;
+
+    const issuerURI1 = `did:web:creatorcredentials.dev`;
+    const issuerURI2 = `https://creatorcredentials.dev`;
+
+    const subjectURI1 = `did:web:${email}`;
+    const subjectURI2 = '';
+
+    const { certificateBuffer, privateKeyBuffer } =
+      await this.certificatesService.createKeyAndCertificate({
+        subject,
+        countryName,
+        stateOrProvinceName,
+        localityName,
+        organizationName,
+        organizationalUnitName,
+        commonName,
+        crlDistributionPoints,
+        issuerURI1,
+        issuerURI2,
+        subjectURI1,
+        subjectURI2,
+      });
+
+    const cert = new x509.X509Certificate(certificateBuffer);
+    const publicKey = cert.publicKey.rawData;
+
+    const hash = crypto.createHash('sha256');
+    hash.update(Buffer.from(publicKey));
+    const publicKeyHash = hash.digest();
+
+    const base58 = baseX(
+      '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz',
+    );
+    const didKey = `did:key:${base58.encode(publicKeyHash)}`;
+
+    return {
+      certificateBuffer,
+      privateKeyBuffer,
+      didKey,
+    };
+  }
+
   async create(createUserDto: CreateUserDto): Promise<User> {
     const newUser = new User();
+    const userFromClerk = await users.getUser(createUserDto.clerkId);
+    const email = userFromClerk.emailAddresses[0].emailAddress;
+
     newUser.clerkId = createUserDto.clerkId;
     newUser.clerkRole = createUserDto.clerkRole;
 
     const nonce = this.generateNonce();
     newUser.nonce = nonce;
 
-    newUser.didKey = keygen.hex(keygen.large);
+    const result = await this.generateCertAndDidKey(newUser);
+    newUser.certificate509Buffer = result.certificateBuffer;
+    newUser.certificatePrivateKey = result.privateKeyBuffer;
+    newUser.didKey = result.didKey;
 
     const user = await this.userRepository.save(newUser, { reload: true });
-    const userFromClerk = await users.getUser(createUserDto.clerkId);
-
-    const email = userFromClerk.emailAddresses[0].emailAddress;
 
     await this.credentialsService.createEmailCredential(
       { email, did: user.didKey },
@@ -78,6 +140,26 @@ export class UsersService {
     return user;
   }
 
+  async assignDidKeyAndReissueEmailCredential(user: User) {
+    if (user.certificate509Buffer) return user;
+
+    const userFromClerk = await users.getUser(user.clerkId);
+    const email = userFromClerk.emailAddresses[0].emailAddress;
+
+    const result = await this.generateCertAndDidKey(user);
+    user.certificate509Buffer = result.certificateBuffer;
+    user.certificatePrivateKey = result.privateKeyBuffer;
+    user.didKey = result.didKey;
+
+    const updatedUser = await this.userRepository.save(user, { reload: true });
+
+    await this.credentialsService.removeEmailCredential(updatedUser);
+    await this.credentialsService.createEmailCredential(
+      { email, did: user.didKey },
+      updatedUser,
+    );
+    return updatedUser;
+  }
   async getByClerkId(clerkId: string): Promise<User> {
     return this.userRepository.findOne({ where: { clerkId } });
   }
@@ -280,6 +362,29 @@ export class UsersService {
     const updatedUser = await this.userRepository.save(user, { reload: true });
 
     await this.credentialsService.removeWalletCredential(updatedUser);
+    return updatedUser;
+  }
+
+  async connectLicciumDidKeyToUser(
+    user: User,
+    licciumDidKey: string,
+    //  licciumClerkToken: string,
+  ) {
+    user.licciumDidKey = licciumDidKey;
+    const updatedUser = await this.userRepository.save(user, { reload: true });
+
+    await this.credentialsService.createConnectCredential(
+      { didKey: user.didKey, licciumDidKey },
+      updatedUser,
+    );
+    return updatedUser;
+  }
+
+  async disconnectLicciumDidKeyFromUser(user: User) {
+    user.licciumDidKey = null;
+    const updatedUser = await this.userRepository.save(user, { reload: true });
+
+    await this.credentialsService.removeConnectCredential(updatedUser);
     return updatedUser;
   }
 

@@ -105,6 +105,9 @@ export class User extends BaseEntity {
   @Column({ unique: true, name: 'did_key', nullable: false })
   didKey: string;
 
+  @Column({ unique: true, name: 'liccium_did_key', nullable: true })
+  licciumDidKey: string;
+
   @Column({ unique: true, name: 'did_web', nullable: true })
   didWeb: string;
 
@@ -128,6 +131,24 @@ export class User extends BaseEntity {
     eager: true,
   })
   createdConnections: Connection[];
+
+  @Exclude({ toPlainOnly: true })
+  @Column({
+    name: 'certificate_509_buffer',
+    nullable: true,
+    default: null,
+    type: 'bytea',
+  })
+  certificate509Buffer: Buffer;
+
+  @Exclude({ toPlainOnly: true })
+  @Column({
+    name: 'certificate_private_key',
+    nullable: true,
+    default: null,
+    type: 'bytea',
+  })
+  certificatePrivateKey: Buffer;
 
   //TIMESTAMPS
   @Exclude()

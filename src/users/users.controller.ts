@@ -160,7 +160,15 @@ export class UsersController {
 
   @Get('check/:clerkId')
   async getUserByClerkId(@Param('clerkId') clerkId: string) {
-    return this.usersService.getByClerkId(clerkId);
+    const user = await this.usersService.getByClerkId(clerkId);
+    if (!user.certificate509Buffer) {
+      const updatedUser =
+        await this.usersService.assignDidKeyAndReissueEmailCredential(user);
+
+      return updatedUser;
+    }
+
+    return user;
   }
 
   @UseGuards(AuthGuard)
@@ -186,6 +194,25 @@ export class UsersController {
   @Post('address/disconnect')
   async disconnectPublicAddressToUser(@GetUser() user: User) {
     return this.usersService.disconnectAddress(user.clerkId);
+  }
+
+  @UseGuards(AuthGuard)
+  @Post('did-liccium/connect')
+  async connectLicciumDidKeyToUser(
+    @GetUser() user: User,
+    @Body('licciumDidKey') licciumDidKey: string,
+    //   @Body('licciumClerkToken') licciumClerkToken: string,
+  ) {
+    return this.usersService.connectLicciumDidKeyToUser(
+      user,
+      licciumDidKey,
+      //   licciumClerkToken,
+    );
+  }
+  @UseGuards(AuthGuard)
+  @Post('did-liccium/disconnect')
+  async disconnectLicciumDidKeyFromUser(@GetUser() user: User) {
+    return this.usersService.disconnectLicciumDidKeyFromUser(user);
   }
 
   @UseGuards(AuthGuard)

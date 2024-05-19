@@ -6,6 +6,7 @@ import { User } from './user.entity';
 import { CredentialsModule } from 'src/credentials/credentials.module';
 import { HttpModule } from '@nestjs/axios';
 import { ConnectionsModule } from 'src/connections/connections.module';
+import { CertificatesModule } from 'src/certificates/certificates.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { ConnectionsModule } from 'src/connections/connections.module';
     forwardRef(() => CredentialsModule),
     forwardRef(() => ConnectionsModule),
     HttpModule,
+    CertificatesModule,
   ],
   exports: [UsersService],
   controllers: [UsersController],

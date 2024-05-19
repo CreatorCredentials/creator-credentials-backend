@@ -6,6 +6,10 @@ FROM public.ecr.aws/docker/library/node:18-alpine3.18
 
 WORKDIR /usr/src/app
 
+RUN apk upgrade --update-cache --available && \
+    apk add openssl && \
+    rm -rf /var/cache/apk/*
+RUN apk add --no-cache bash
 RUN npm install -g pnpm
 # Files required by pnpm install
 COPY package.json pnpm-lock.yaml ./
