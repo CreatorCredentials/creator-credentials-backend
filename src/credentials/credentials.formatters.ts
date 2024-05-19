@@ -1,4 +1,5 @@
 import {
+  ConnectCredential,
   DidWebCredential,
   DomainCredential,
   EmailCredential,
@@ -25,6 +26,8 @@ export function formatCredentialForUnion(
       return formatDomainCredential(credential);
     case CredentialType.Member:
       return formatMemberCredential(credential);
+    case CredentialType.Connect:
+      return formatConnectCredential(credential);
     default:
       throw new NotFoundException(
         'CredentialType is not defined properly for credential.',
@@ -129,6 +132,29 @@ export function formatMemberCredential(
     id: credential.id.toString(),
     status: credential.credentialStatus,
     type: CredentialType.Member,
+    data: {
+      validity: credential.value || 'wrong',
+      companyName: DEFAUTL_COMPANY_NAME,
+      requirements: 'Info about requirements',
+      userId: credential.userId,
+      credentialObject: {
+        proof: {
+          type: 'JwtProof2020',
+          jwt: credential.token,
+        },
+        ...credential.credentialObject,
+      },
+    },
+  };
+}
+
+export function formatConnectCredential(
+  credential: Credential,
+): ConnectCredential {
+  return {
+    id: credential.id.toString(),
+    status: credential.credentialStatus,
+    type: CredentialType.Connect,
     data: {
       validity: credential.value || 'wrong',
       companyName: DEFAUTL_COMPANY_NAME,

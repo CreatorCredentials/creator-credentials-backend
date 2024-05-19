@@ -100,6 +100,7 @@ export class CredentialsController {
       walletCredential,
       domainCredential,
       memberShipCredentials,
+      connectCredential,
     ] = await Promise.all([
       this.credentialsService.getCredentialsOfUserByType(
         user,
@@ -117,6 +118,10 @@ export class CredentialsController {
         user,
         CredentialType.Member,
       ),
+      this.credentialsService.getCredentialsOfUserByType(
+        user,
+        CredentialType.Connect,
+      ),
     ]);
 
     return {
@@ -126,6 +131,8 @@ export class CredentialsController {
       domain:
         domainCredential[0] && formatCredentialForUnion(domainCredential[0]),
       membership: memberShipCredentials.map(formatCredentialForUnion),
+      connect:
+        connectCredential[0] && formatCredentialForUnion(connectCredential[0]),
     };
   }
 
