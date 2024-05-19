@@ -92,6 +92,7 @@ export type CreatorCredentials = {
   email: EmailCredential;
   metaMask: WalletCredential | null;
   domain: DomainCredential | null;
+  connect: ConnectCredential | null;
   membership: MembershipCredential[];
 };
 

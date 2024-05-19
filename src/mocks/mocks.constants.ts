@@ -64,6 +64,7 @@ export const MOCK_CREATOR_CREDENTIALS: CreatorCredentials = {
     status: CredentialVerificationStatus.Success,
   },
   domain: null,
+  connect: null,
   membership: [
     {
       id: 'membership-credential-id-1',
