@@ -161,7 +161,7 @@ export class UsersController {
   @Get('check/:clerkId')
   async getUserByClerkId(@Param('clerkId') clerkId: string) {
     const user = await this.usersService.getByClerkId(clerkId);
-    if (!user.certificate509Buffer) {
+    if (user && !user.certificate509Buffer) {
       const updatedUser =
         await this.usersService.assignDidKeyAndReissueEmailCredential(user);
 
