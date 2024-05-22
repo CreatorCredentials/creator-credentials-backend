@@ -279,9 +279,10 @@ export class CredentialsService {
     });
 
     if (currentConnectCredential) {
-      throw new ConflictException(
-        'Connect credential already exists for this user.',
-      );
+      await this.removeConnectCredential(user);
+      // throw new ConflictException(
+      //   'Connect credential already exists for this user.',
+      // );
     }
 
     const now = new Date();
