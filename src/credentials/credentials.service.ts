@@ -138,7 +138,7 @@ export class CredentialsService {
       validFrom: now.toISOString(),
       validUntil: end.toISOString(),
       credentialSubject: {
-        id: `did:key:${user.didKey}`,
+        id: `${user.didKey}`,
         walletAddress: createWalletCredentialDto.publicAddress,
       },
       credentialSchema: [
@@ -404,7 +404,7 @@ export class CredentialsService {
       validFrom: now.toISOString(),
       validUntil: end.toISOString(),
       credentialSubject: {
-        id: `did:key:${user.didKey}`,
+        id: `${user.didKey}`,
         domain: createDomainCredentialDto.domain,
       },
       credentialSchema: [
@@ -507,7 +507,7 @@ export class CredentialsService {
       validFrom: now.toISOString(),
       validUntil: end.toISOString(),
       credentialSubject: {
-        id: `did:key:${user.didKey}`,
+        id: `${user.didKey}`,
         didWeb: createDidWebCredentialDto.didWeb,
       },
       credentialSchema: [
