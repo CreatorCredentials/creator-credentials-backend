@@ -27,7 +27,6 @@ export class Template {
     name: 'template_type',
     type: 'enum',
     nullable: false,
-    unique: true,
     default: CredentialTemplateType.Member,
   })
   templateType: CredentialTemplateType;
