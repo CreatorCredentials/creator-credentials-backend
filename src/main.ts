@@ -7,9 +7,14 @@ import getLogLevels from './config/log-levels';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: getLogLevels(process.env.NODE_ENV === 'production'),
+    httpsOptions,
   });
 
-  app.enableCors();
+  app.enableCors({
+    origin: ['https://cc-backend.liccium.network', 'https://liccium.app'],
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+  });
+
   app.enableVersioning({
     type: VersioningType.URI,
     defaultVersion: '1',
