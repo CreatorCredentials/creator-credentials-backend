@@ -48,6 +48,7 @@ export class CredentialsService {
   ): Promise<Credential[]> {
     const credential = await this.credentialsRepository.find({
       where: { userId: user.id, credentialType },
+      relations: ['issuer'],
     });
 
     return credential;
@@ -565,10 +566,26 @@ export class CredentialsService {
   ): Promise<Credential> {
     // TODO prevent creation of new pending credential if credential exists at pending
     // or accepted state for the same creator and issuer pair
+
+    const currentMemberCredential = await this.credentialsRepository.findOne({
+      where: {
+        credentialType: CredentialType.Member,
+        issuerId,
+        userId: user.id,
+      },
+      relations: ['user'],
+    });
+
+    if (currentMemberCredential) {
+      throw new ConflictException(
+        'Member credential of that issue is already requested by that user.',
+      );
+    }
+
     const credential = this.credentialsRepository.create({
       email: createMemberCredentialDto.value,
       value: createMemberCredentialDto.value,
-      issuerId: issuerId,
+      issuerId,
       credentialType: CredentialType.Member,
       credentialStatus: CredentialVerificationStatus.Pending,
       credentialObject: {},

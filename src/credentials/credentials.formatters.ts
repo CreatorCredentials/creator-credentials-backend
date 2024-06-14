@@ -134,7 +134,7 @@ export function formatMemberCredential(
     type: CredentialType.Member,
     data: {
       validity: credential.value || 'wrong',
-      companyName: DEFAUTL_COMPANY_NAME,
+      companyName: credential?.issuer?.name || DEFAUTL_COMPANY_NAME,
       requirements: 'Info about requirements',
       userId: credential.userId,
       credentialObject: {

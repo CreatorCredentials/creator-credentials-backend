@@ -142,4 +142,13 @@ export class ConnectionsService {
       where: [{ issuer: user }, { creator: user }],
     });
   }
+
+  async getAcceptedCreatorsIssuers(user: User): Promise<User[]> {
+    const connections = await this.connectionRepository.find({
+      where: [{ creatorId: user.id, status: ConnectionStatus.Accepted }],
+      relations: ['issuer'],
+    });
+
+    return connections.map((c) => c.issuer);
+  }
 }

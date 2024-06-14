@@ -18,10 +18,14 @@ import { ClerkRole, User } from 'src/users/user.entity';
 import { CredentialVerificationStatus } from 'src/shared/typings/CredentialVerificationStatus';
 import { formatCredentialForUnion } from './credentials.formatters';
 import { CredentialType } from 'src/shared/typings/CredentialType';
+import { UsersService } from 'src/users/users.service';
 
 @Controller('credentials')
 export class CredentialsController {
-  constructor(private readonly credentialsService: CredentialsService) {}
+  constructor(
+    private readonly credentialsService: CredentialsService,
+    private readonly usersService: UsersService,
+  ) {}
 
   @UseGuards(AuthGuard)
   @Post('create/email')
@@ -145,8 +149,17 @@ export class CredentialsController {
     if (user.clerkRole !== ClerkRole.Creator) {
       throw new NotFoundException('This api is only for creators.');
     }
+    const issuer = await this.usersService.getByUserId(issuerId);
+    if (!issuer || issuer.clerkRole !== ClerkRole.Issuer) {
+      throw new NotFoundException('This issuer is not found.');
+    }
+
+    if (!issuer.domain && !issuer.didWeb) {
+      throw new NotFoundException('This issuer has not verified himself.');
+    }
+
     return this.credentialsService.createPendingMemberCredential(
-      { value: user.name, did: user.name },
+      { value: issuer.domain || issuer.didWeb, did: user.didKey },
       user,
       issuerId,
     );

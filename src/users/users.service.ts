@@ -24,7 +24,10 @@ import { HttpService } from '@nestjs/axios';
 import * as https from 'https';
 import { TimeoutError, catchError, map, timeout } from 'rxjs';
 import { AVAILABLE_CREDENTIALS, LicciumIssuer } from './users.constants';
-import { IssuerWithVerifiedCredentials } from 'src/shared/typings/Issuer';
+import {
+  Issuer,
+  IssuerWithVerifiedCredentials,
+} from 'src/shared/typings/Issuer';
 import { IssuerConnectionStatus } from 'src/shared/typings/IssuerConnectionStatus';
 import { CredentialType } from 'src/shared/typings/CredentialType';
 import {
@@ -170,6 +173,9 @@ export class UsersService {
     return this.userRepository.findOne({ where: { clerkId } });
   }
 
+  async getByUserId(userId: number): Promise<User> {
+    return this.userRepository.findOne({ where: { id: userId } });
+  }
   async getCreatorOfIssuer(
     creatorId: number,
     user: User,
@@ -256,6 +262,17 @@ export class UsersService {
     //   ),
     // );
     return this.mapUsersToIssuerResponse(issuers, user);
+  }
+
+  async getAllConnectedIssuersOfCreator(user: User): Promise<User[]> {
+    if (user.clerkRole !== ClerkRole.Creator) {
+      throw new NotFoundException('This service is only for Creator.');
+    }
+    const issuers = await this.connectionsService.getAcceptedCreatorsIssuers(
+      user,
+    );
+
+    return issuers;
   }
 
   private mapUserToIssuerResponse(issuer: User, creator: User) {
@@ -374,11 +391,7 @@ export class UsersService {
     return updatedUser;
   }
 
-  async connectLicciumDidKeyToUser(
-    user: User,
-    licciumDidKey: string,
-    //  licciumClerkToken: string,
-  ) {
+  async connectLicciumDidKeyToUser(user: User, licciumDidKey: string) {
     user.licciumDidKey = licciumDidKey;
     const updatedUser = await this.userRepository.save(user, { reload: true });
 
