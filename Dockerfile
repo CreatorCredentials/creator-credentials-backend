@@ -2,7 +2,7 @@
 # BUILD FOR AWS DEPLOYMENT
 ###################
 
-FROM public.ecr.aws/docker/library/node:18-alpine3.18
+FROM public.ecr.aws/docker/library/node:18-alpine3.20
 
 WORKDIR /usr/src/app
 

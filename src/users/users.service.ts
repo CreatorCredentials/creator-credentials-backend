@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository, ArrayContains } from 'typeorm';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -17,7 +22,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { domainVerificationPrefix } from 'src/credentials/credentials.constants';
 import { HttpService } from '@nestjs/axios';
 import * as https from 'https';
-import { map } from 'rxjs';
+import { TimeoutError, catchError, map, timeout } from 'rxjs';
 import { AVAILABLE_CREDENTIALS, LicciumIssuer } from './users.constants';
 import { IssuerWithVerifiedCredentials } from 'src/shared/typings/Issuer';
 import { IssuerConnectionStatus } from 'src/shared/typings/IssuerConnectionStatus';
@@ -43,6 +48,7 @@ import { CertificatesService } from 'src/certificates/certificates.service';
 import * as x509 from '@peculiar/x509';
 import * as crypto from 'crypto';
 import * as baseX from 'base-x';
+import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class UsersService {
@@ -438,31 +444,40 @@ export class UsersService {
 
   @Cron(CronExpression.EVERY_10_SECONDS)
   async checkUserDomains() {
-    const users = await this.userRepository.find({
-      where: { domainPendingVerifcation: true },
-    });
-    users.forEach((user) => this.verifyDomainRecordAndConnect(user));
+    // console.log('checkUserDomains called by cron: ');
+    try {
+      const users = await this.userRepository.find({
+        where: { domainPendingVerifcation: true },
+      });
+      users.forEach((user) => this.verifyDomainRecordAndConnect(user));
+    } catch (error) {
+      console.log('cron checkUserDomains error: ', error);
+    }
   }
 
   private async verifyDomainRecordAndConnect(user: User) {
-    const records = await this.resolveTxtOnDomain(user.domain);
+    try {
+      const records = await this.resolveTxtOnDomain(user.domain);
 
-    const creatorCredentialsMessagesFromRecords = records.filter((record) =>
-      record.some((value) => value.includes(domainVerificationPrefix)),
-    );
+      const creatorCredentialsMessagesFromRecords = records.filter((record) =>
+        record.some((value) => value.includes(domainVerificationPrefix)),
+      );
 
-    const doesValuePresented = creatorCredentialsMessagesFromRecords.some(
-      (record) => record.some((value) => value === user.domainRecord),
-    );
-    if (doesValuePresented) {
-      await this.credentialsService.createDomainCredential(
-        { did: user.domain, domain: user.domain },
-        user,
+      const doesValuePresented = creatorCredentialsMessagesFromRecords.some(
+        (record) => record.some((value) => value === user.domainRecord),
       );
-      await this.userRepository.update(
-        { clerkId: user.clerkId },
-        { domainPendingVerifcation: false },
-      );
+      if (doesValuePresented) {
+        await this.credentialsService.createDomainCredential(
+          { did: user.domain, domain: user.domain },
+          user,
+        );
+        await this.userRepository.update(
+          { clerkId: user.clerkId },
+          { domainPendingVerifcation: false },
+        );
+      }
+    } catch (error) {
+      console.log('verifyDomainRecordAndConnect error happened: ', error);
     }
   }
 
@@ -520,6 +535,7 @@ export class UsersService {
 
   @Cron(CronExpression.EVERY_10_SECONDS)
   async checkUsersDidWeb() {
+    // console.log('checkUsersDidWeb called by cron: ');
     try {
       const users = await this.userRepository.find({
         where: { didWebPendingVerifcation: true },
@@ -531,34 +547,65 @@ export class UsersService {
   }
 
   private async getDidWebWellKnowOfUser(user: User): Promise<any> {
-    const didWebFromServer = await this.httpService
-      .get(`https://${user.didWeb}/.well-known/did.json`, {
-        httpsAgent: new https.Agent({
-          rejectUnauthorized: false,
-        }),
-      })
-      .pipe(map((response) => response.data))
-      .toPromise();
-
-    return didWebFromServer;
+    try {
+      const { data: didWebFromServer } = await firstValueFrom(
+        this.httpService
+          .get(`https://${user.didWeb}/.well-known/did.json`, {
+            httpsAgent: new https.Agent({
+              rejectUnauthorized: false,
+            }),
+          })
+          .pipe(
+            timeout(9000), // nine seconds timeout
+            catchError((err) => {
+              if (err instanceof TimeoutError) {
+                throw new HttpException(
+                  'Request timed out',
+                  HttpStatus.REQUEST_TIMEOUT,
+                );
+              }
+              throw new HttpException(
+                err.message,
+                HttpStatus.INTERNAL_SERVER_ERROR,
+              );
+            }),
+          ),
+      );
+      // console.log(
+      //   'getDidWebWellKnowOfUser user didWebFromServer: ',
+      //   didWebFromServer,
+      // );
+      return didWebFromServer;
+    } catch (error) {
+      console.error('didWeb verification failed for user: ', user.id);
+      // console.error('Error fetching data', error);
+    }
   }
 
   private async verifyDidWebWellKnownAndConnect(user: User) {
     const wellKnown = await this.getDidWebWellKnowOfUser(user);
-    const toCompare = user.didWebWellKnown;
-    const doesWellKnowMatch =
-      wellKnown.verificationMethod[0].publicKeyJwk.x ===
-      toCompare.verificationMethod[0].publicKeyJwk.x;
+    // console.log('verifyDidWebWellKnownAndConnect wellKnown: ', wellKnown);
 
-    if (doesWellKnowMatch) {
-      await this.credentialsService.createDidWebCredential(
-        { did: user.domain, didWeb: user.didWeb },
-        user,
-      );
-      await this.userRepository.update(
-        { clerkId: user.clerkId },
-        { didWebPendingVerifcation: false },
-      );
+    if (
+      wellKnown &&
+      wellKnown.verificationMethod &&
+      wellKnown.verificationMethod[0]
+    ) {
+      const toCompare = user.didWebWellKnown;
+      const doesWellKnowMatch =
+        wellKnown.verificationMethod[0].publicKeyJwk?.x ===
+        toCompare.verificationMethod[0].publicKeyJwk?.x;
+
+      if (doesWellKnowMatch) {
+        await this.credentialsService.createDidWebCredential(
+          { did: user.domain, didWeb: user.didWeb },
+          user,
+        );
+        await this.userRepository.update(
+          { clerkId: user.clerkId },
+          { didWebPendingVerifcation: false },
+        );
+      }
     }
   }
 
