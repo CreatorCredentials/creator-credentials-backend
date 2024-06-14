@@ -216,8 +216,11 @@ export class UsersService {
       },
     });
 
+    const usersMap = {};
+    users.forEach((user) => (usersMap[user.id] = user));
+
     const creators = connections.map((connection, index) =>
-      mapIssuerConnectionToCreator(connection, users[index]),
+      mapIssuerConnectionToCreator(connection, usersMap[connection.creatorId]),
     );
 
     return creators;

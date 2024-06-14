@@ -11,7 +11,11 @@ async function bootstrap() {
   });
 
   app.enableCors({
-    origin: ['https://cc-backend.liccium.network', 'https://liccium.app'],
+    origin: [
+      'https://cc-backend.liccium.network',
+      'https://liccium.app',
+      'http://localhost:3105',
+    ],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
   });
 
