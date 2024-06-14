@@ -7,7 +7,6 @@ import getLogLevels from './config/log-levels';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: getLogLevels(process.env.NODE_ENV === 'production'),
-    httpsOptions,
   });
 
   app.enableCors({
