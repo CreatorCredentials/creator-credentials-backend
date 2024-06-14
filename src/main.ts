@@ -14,6 +14,7 @@ async function bootstrap() {
       'https://cc-backend.liccium.network',
       'https://liccium.app',
       'http://localhost:3105',
+      'https://www.creatorcredentials.dev',
     ],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
   });
