@@ -9,6 +9,11 @@ import {
   Param,
   Query,
   Delete,
+  UnauthorizedException,
+  HttpException,
+  HttpStatus,
+  RawBodyRequest,
+  Req,
 } from '@nestjs/common';
 import { CredentialsService } from './credentials.service';
 import { CreateEmailCredentialDto } from './dto/create-email-credential.dto';
@@ -19,12 +24,24 @@ import { CredentialVerificationStatus } from 'src/shared/typings/CredentialVerif
 import { formatCredentialForUnion } from './credentials.formatters';
 import { CredentialType } from 'src/shared/typings/CredentialType';
 import { UsersService } from 'src/users/users.service';
+import { Token, createClerkClient } from '@clerk/clerk-sdk-node';
+import * as jwt from 'jsonwebtoken';
+import axios from 'axios';
+import { TimeoutError, catchError, firstValueFrom } from 'rxjs';
+import { HttpService } from '@nestjs/axios';
+import { promisify } from 'util';
+import { JwtService } from '@nestjs/jwt';
+import { KeyObject, createPublicKey } from 'crypto';
+
+const verifyAsync = promisify(jwt.verify);
 
 @Controller('credentials')
 export class CredentialsController {
   constructor(
     private readonly credentialsService: CredentialsService,
     private readonly usersService: UsersService,
+    private readonly httpService: HttpService,
+    private readonly jwtService: JwtService,
   ) {}
 
   @UseGuards(AuthGuard)
@@ -163,6 +180,131 @@ export class CredentialsController {
       user,
       issuerId,
     );
+  }
+
+  @Post('export')
+  async exportCredentialsForUser(@Body('token') token: string) {
+    const key: KeyObject = createPublicKey({
+      key: {
+        use: 'sig',
+        kty: 'RSA',
+        kid: process.env.LICCIUM_CLERK_KEYS_KID,
+        alg: 'RS256',
+        n: process.env.LICCIUM_CLERK_KEYS_N,
+        e: process.env.LICCIUM_CLERK_KEYS_E,
+      },
+      format: 'jwk',
+    });
+
+    const exportedKey: string = key
+      .export({ type: 'pkcs1', format: 'pem' })
+      .toString();
+
+    const result = await this.jwtService.verify(token, {
+      algorithms: ['RS256'],
+      publicKey: exportedKey,
+    });
+    console.log(result);
+
+    if (!token) {
+      throw new UnauthorizedException('Token is required');
+    }
+
+    const userEmail = result?.email;
+
+    if (!result?.sub || !userEmail) {
+      throw new UnauthorizedException('Invalid token or email not found');
+    }
+    interface ClerkUser {
+      id: string;
+      email_addresses: Array<{
+        id: string;
+        email_address: string;
+        verified: boolean;
+      }>;
+    }
+
+    interface ClerkApiResponse {
+      data: ClerkUser[];
+    }
+
+    let users = null;
+
+    try {
+      const response = await firstValueFrom<ClerkApiResponse>(
+        this.httpService
+          .get(`https://api.clerk.dev/v1/users?email_address=${userEmail}`, {
+            headers: {
+              Authorization: `Bearer ${process.env.CLERK_SECRET_KEY}`,
+            },
+          })
+          .pipe(
+            catchError((err) => {
+              throw new HttpException(
+                err.message,
+                HttpStatus.INTERNAL_SERVER_ERROR,
+              );
+            }),
+          ),
+      );
+      users = response.data;
+    } catch (error) {
+      console.log('Error fetching user from Clerk');
+      console.log(error);
+      users = [];
+    }
+
+    console.log('users: ', users);
+    if (!users[0]) return;
+
+    const userId = users[0].id;
+
+    const user = await this.usersService.getByClerkId(userId);
+    if (user.clerkRole !== ClerkRole.Creator) {
+      throw new NotFoundException('This api is only for creators.');
+    }
+
+    const [
+      emailCredential,
+      walletCredential,
+      domainCredential,
+      memberShipCredentials,
+      connectCredential,
+    ] = await Promise.all([
+      this.credentialsService.getCredentialsOfUserByType(
+        user,
+        CredentialType.EMail,
+      ),
+      this.credentialsService.getCredentialsOfUserByType(
+        user,
+        CredentialType.Wallet,
+      ),
+      this.credentialsService.getCredentialsOfUserByType(
+        user,
+        CredentialType.Domain,
+      ),
+      this.credentialsService.getCredentialsOfUserByType(
+        user,
+        CredentialType.Member,
+      ),
+      this.credentialsService.getCredentialsOfUserByType(
+        user,
+        CredentialType.Connect,
+      ),
+    ]);
+
+    const credentials = {
+      email: emailCredential[0] && formatCredentialForUnion(emailCredential[0]),
+      wallet:
+        walletCredential[0] && formatCredentialForUnion(walletCredential[0]),
+      domain:
+        domainCredential[0] && formatCredentialForUnion(domainCredential[0]),
+      membership: memberShipCredentials.map(formatCredentialForUnion),
+      connect:
+        connectCredential[0] && formatCredentialForUnion(connectCredential[0]),
+    };
+
+    return { userId, userEmail, credentials };
   }
 
   @UseGuards(AuthGuard)

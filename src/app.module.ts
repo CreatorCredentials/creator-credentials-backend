@@ -65,7 +65,13 @@ export class AppModule implements NestModule {
           next();
         },
       )
-      .exclude('.well-known/(.*)', 'health', 'v1/mocks', 'v1/mocks/(.*)')
+      .exclude(
+        '.well-known/(.*)',
+        'health',
+        'v1/mocks',
+        'v1/mocks/(.*)',
+        'v1/credentials/export',
+      )
       .forRoutes('*');
   }
 }
