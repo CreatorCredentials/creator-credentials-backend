@@ -16,6 +16,8 @@ async function bootstrap() {
       'http://localhost:3105',
       'https://www.creatorcredentials.dev',
       'https://creatorcredentials.dev',
+      'https://www.creatorcredentials.app',
+      'https://creatorcredentials.app',
     ],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
   });
