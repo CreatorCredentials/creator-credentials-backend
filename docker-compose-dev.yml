@@ -1,0 +1,33 @@
+version: '3.9'
+services:
+  backend:
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/creator-credentials-dev
+    build:
+      context: .
+    environment:
+      APP_PORT: ${APP_PORT}
+      DATABASE_HOSTNAME: ${DATABASE_HOSTNAME}
+      DATABASE_PORT: ${DATABASE_PORT}
+      DATABASE_USER: ${DATABASE_USER}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+      DATABASE_NAME: ${DATABASE_NAME}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
+      SIGNATURE_KEY_D: ${SIGNATURE_KEY_D}
+      SIGNATURE_KEY_X: ${SIGNATURE_KEY_X}
+      SIGNATURE_KEY_Y: ${SIGNATURE_KEY_Y}
+      CERT_SECRET_KEY: ${CERT_SECRET_KEY}
+      LICCIUM_CLERK_KEYS_KID: ${LICCIUM_CLERK_KEYS_KID}
+      LICCIUM_CLERK_KEYS_N: ${LICCIUM_CLERK_KEYS_N}
+      LICCIUM_CLERK_KEYS_E: ${LICCIUM_CLERK_KEYS_E}
+      HALCOM_CERT_PRIVATE_KEY: ${HALCOM_CERT_PRIVATE_KEY}
+      TERMS_AND_CONDITIONS_URL: ${TERMS_AND_CONDITIONS_URL}
+    volumes:
+      - ./:/code
+    ports:
+      - '3100:3100'
+    networks:
+      - creator_credentials_dev
+
+networks:
+  creator_credentials_dev:
+    driver: bridge
