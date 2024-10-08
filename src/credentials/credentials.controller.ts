@@ -184,6 +184,8 @@ export class CredentialsController {
 
   @Post('export')
   async exportCredentialsForUser(@Body('token') token: string) {
+    console.log('exportCredentialsForUser called');
+
     const key: KeyObject = createPublicKey({
       key: {
         use: 'sig',
@@ -196,15 +198,19 @@ export class CredentialsController {
       format: 'jwk',
     });
 
+    console.log('exportCredentialsForUser key: ', key);
+
     const exportedKey: string = key
       .export({ type: 'pkcs1', format: 'pem' })
       .toString();
 
+    console.log('exportedKey: ', exportedKey);
     const result = await this.jwtService.verify(token, {
       algorithms: ['RS256'],
       publicKey: exportedKey,
     });
-    console.log(result);
+    console.log('result', result);
+    console.log('token', token);
 
     if (!token) {
       throw new UnauthorizedException('Token is required');
@@ -212,9 +218,12 @@ export class CredentialsController {
 
     const userEmail = result?.email;
 
+    console.log('userEmail', userEmail);
+
     if (!result?.sub || !userEmail) {
       throw new UnauthorizedException('Invalid token or email not found');
     }
+
     interface ClerkUser {
       id: string;
       email_addresses: Array<{
