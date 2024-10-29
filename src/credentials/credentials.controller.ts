@@ -273,6 +273,20 @@ export class CredentialsController {
       throw new NotFoundException('This api is only for creators.');
     }
 
+    const licciumDidKey = result?.licciumDidKey;
+
+    if (!licciumDidKey) {
+      throw new NotFoundException(
+        "Liccium user doesn' contain licciumDidKey. Import and connection failed",
+      );
+    }
+
+    await this.credentialsService.removeConnectCredential(user);
+    await this.credentialsService.createConnectCredential(
+      { didKey: user.didKey, licciumDidKey },
+      user,
+    );
+
     const [
       emailCredential,
       walletCredential,
