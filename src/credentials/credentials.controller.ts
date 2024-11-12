@@ -250,11 +250,16 @@ export class CredentialsController {
     try {
       const response = await firstValueFrom<ClerkApiResponse>(
         this.httpService
-          .get(`https://api.clerk.dev/v1/users?email_address=${userEmail}`, {
-            headers: {
-              Authorization: `Bearer ${process.env.CLERK_SECRET_KEY}`,
+          .get(
+            `https://api.clerk.dev/v1/users?email_address=${encodeURIComponent(
+              userEmail,
+            )}`,
+            {
+              headers: {
+                Authorization: `Bearer ${process.env.CLERK_SECRET_KEY}`,
+              },
             },
-          })
+          )
           .pipe(
             catchError((err) => {
               throw new HttpException(
