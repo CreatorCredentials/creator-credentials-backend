@@ -224,6 +224,14 @@ export class CredentialsController {
       throw new UnauthorizedException('Invalid token or email not found');
     }
 
+    const licciumDidKey = result?.licciumDidKey;
+
+    if (!licciumDidKey) {
+      throw new NotFoundException(
+        "Liccium user doesn' contain licciumDidKey. Import and connection failed",
+      );
+    }
+
     interface ClerkUser {
       id: string;
       email_addresses: Array<{
@@ -242,11 +250,16 @@ export class CredentialsController {
     try {
       const response = await firstValueFrom<ClerkApiResponse>(
         this.httpService
-          .get(`https://api.clerk.dev/v1/users?email_address=${userEmail}`, {
-            headers: {
-              Authorization: `Bearer ${process.env.CLERK_SECRET_KEY}`,
+          .get(
+            `https://api.clerk.dev/v1/users?email_address=${encodeURIComponent(
+              userEmail,
+            )}`,
+            {
+              headers: {
+                Authorization: `Bearer ${process.env.CLERK_SECRET_KEY}`,
+              },
             },
-          })
+          )
           .pipe(
             catchError((err) => {
               throw new HttpException(
@@ -271,14 +284,6 @@ export class CredentialsController {
     const user = await this.usersService.getByClerkId(userId);
     if (user.clerkRole !== ClerkRole.Creator) {
       throw new NotFoundException('This api is only for creators.');
-    }
-
-    const licciumDidKey = result?.licciumDidKey;
-
-    if (!licciumDidKey) {
-      throw new NotFoundException(
-        "Liccium user doesn' contain licciumDidKey. Import and connection failed",
-      );
     }
 
     await this.credentialsService.removeConnectCredential(user);
