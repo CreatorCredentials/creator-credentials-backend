@@ -12,7 +12,12 @@ import { CreateDidWebCredentialDto } from './dto/create-didweb-credential.dto';
 import { CredentialType } from 'src/shared/typings/CredentialType';
 import { CredentialVerificationStatus } from 'src/shared/typings/CredentialVerificationStatus';
 import { CreateMemberCredentialDto } from './dto/create-member-credential.dto';
-import { generateMemberCredentialObjectAndJWS } from './credentials.helpers';
+import {
+  generateConnectCredentialObjectAndJWS,
+  generateDomainCredentialObjectAndJWS,
+  generateEmailCredentialObjectAndJWS,
+  generateMemberCredentialObjectAndJWS,
+} from './credentials.helpers';
 import { CreateConnectCredentialDto } from './dto/create-connect-credential.dto';
 
 const credentialsHost = 'liccium.com';
@@ -204,53 +209,25 @@ export class CredentialsService {
       );
     }
 
-    const now = new Date();
-    const end = new Date();
-    end.setFullYear(end.getFullYear() + 1);
-
-    const credentialObject = {
-      '@context': ['https://www.w3.org/ns/credentials/v2'],
-      id: `urn:uuid:${uuidv4()}`,
-      type: [
-        'VerifiableCredential',
-        'VerifiableAttestation',
-        'VerifiableEmail',
-      ],
-      issuer: `did:web:${credentialsHost}`,
-      validFrom: now.toISOString(),
-      validUntil: end.toISOString(),
-      credentialSubject: {
-        id: user.didKey,
-        email: createEmailCredentialDto.email,
-      },
-      credentialSchema: [
-        {
-          id: 'https://github.com/CreatorCredentials/specifications/blob/main/json-schema/verification-credentials/email/schema.json',
-          type: 'JsonSchema',
-        },
-      ],
-      termsOfUse: {
-        type: 'PresentationPolicy',
-        confidentialityLevel: 'restricted',
-        pii: 'sensitive',
-      },
-    };
-
-    const ecPrivateKey = await jose.importJWK(
-      {
-        kty: 'EC',
-        crv: 'P-256',
-        d: process.env.SIGNATURE_KEY_D,
-        x: process.env.SIGNATURE_KEY_X,
-        y: process.env.SIGNATURE_KEY_Y,
-      },
-      'ES256',
+    const { credentialObject, jws } = await generateEmailCredentialObjectAndJWS(
+      createEmailCredentialDto,
+      user,
     );
-    const jws = await new jose.CompactSign(
-      new TextEncoder().encode(JSON.stringify(credentialObject)),
-    )
-      .setProtectedHeader({ alg: 'ES256' })
-      .sign(ecPrivateKey);
+    // const ecPrivateKey = await jose.importJWK(
+    //   {
+    //     kty: 'EC',
+    //     crv: 'P-256',
+    //     d: process.env.SIGNATURE_KEY_D,
+    //     x: process.env.SIGNATURE_KEY_X,
+    //     y: process.env.SIGNATURE_KEY_Y,
+    //   },
+    //   'ES256',
+    // );
+    // const jws = await new jose.CompactSign(
+    //   new TextEncoder().encode(JSON.stringify(credentialObject)),
+    // )
+    //   .setProtectedHeader({ alg: 'ES256' })
+    //   .sign(ecPrivateKey);
 
     const credential = await this.credentialsRepository.create({
       email: createEmailCredentialDto.email,
@@ -286,53 +263,24 @@ export class CredentialsService {
       // );
     }
 
-    const now = new Date();
-    const end = new Date();
-    end.setFullYear(end.getFullYear() + 1);
+    const { credentialObject, jws } =
+      await generateConnectCredentialObjectAndJWS(createConnectCredentialDto);
 
-    const credentialObject = {
-      '@context': ['https://www.w3.org/ns/credentials/v2'],
-      id: `urn:uuid:${uuidv4()}`,
-      type: [
-        'VerifiableCredential',
-        'VerifiableAttestation',
-        'VerifiableDidConnect',
-      ],
-      issuer: `did:web:${credentialsHost}`,
-      validFrom: now.toISOString(),
-      validUntil: end.toISOString(),
-      credentialSubject: {
-        id: createConnectCredentialDto.didKey,
-        sameAs: createConnectCredentialDto.licciumDidKey,
-      },
-      credentialSchema: [
-        {
-          id: 'https://github.com/CreatorCredentials/specifications/blob/main/json-schema/verification-credentials/email/schema.json',
-          type: 'JsonSchema',
-        },
-      ],
-      termsOfUse: {
-        type: 'PresentationPolicy',
-        confidentialityLevel: 'restricted',
-        pii: 'sensitive',
-      },
-    };
-
-    const ecPrivateKey = await jose.importJWK(
-      {
-        kty: 'EC',
-        crv: 'P-256',
-        d: process.env.SIGNATURE_KEY_D,
-        x: process.env.SIGNATURE_KEY_X,
-        y: process.env.SIGNATURE_KEY_Y,
-      },
-      'ES256',
-    );
-    const jws = await new jose.CompactSign(
-      new TextEncoder().encode(JSON.stringify(credentialObject)),
-    )
-      .setProtectedHeader({ alg: 'ES256' })
-      .sign(ecPrivateKey);
+    // const ecPrivateKey = await jose.importJWK(
+    //   {
+    //     kty: 'EC',
+    //     crv: 'P-256',
+    //     d: process.env.SIGNATURE_KEY_D,
+    //     x: process.env.SIGNATURE_KEY_X,
+    //     y: process.env.SIGNATURE_KEY_Y,
+    //   },
+    //   'ES256',
+    // );
+    // const jws = await new jose.CompactSign(
+    //   new TextEncoder().encode(JSON.stringify(credentialObject)),
+    // )
+    //   .setProtectedHeader({ alg: 'ES256' })
+    //   .sign(ecPrivateKey);
 
     const credential = await this.credentialsRepository.create({
       email: createConnectCredentialDto.licciumDidKey,
@@ -389,53 +337,27 @@ export class CredentialsService {
       await this.removeDomainCredential(user);
     }
 
-    const now = new Date();
-    const end = new Date();
-    end.setFullYear(end.getFullYear() + 1);
+    const { credentialObject, jws } =
+      await generateDomainCredentialObjectAndJWS(
+        createDomainCredentialDto,
+        user,
+      );
 
-    const credentialObject = {
-      '@context': ['https://www.w3.org/ns/credentials/v2'],
-      id: `urn:uuid:${uuidv4()}`,
-      type: [
-        'VerifiableCredential',
-        'VerifiableAttestation',
-        'VerifiableDomain',
-      ],
-      issuer: `did:web:${credentialsHost}`,
-      validFrom: now.toISOString(),
-      validUntil: end.toISOString(),
-      credentialSubject: {
-        id: `${user.didKey}`,
-        domain: createDomainCredentialDto.domain,
-      },
-      credentialSchema: [
-        {
-          id: 'https://github.com/CreatorCredentials/specifications/blob/main/json-schema/verification-credentials/domain/schema.json',
-          type: 'JsonSchema',
-        },
-      ],
-      termsOfUse: {
-        type: 'PresentationPolicy',
-        confidentialityLevel: 'restricted',
-        pii: 'sensitive',
-      },
-    };
-
-    const ecPrivateKey = await jose.importJWK(
-      {
-        kty: 'EC',
-        crv: 'P-256',
-        d: process.env.SIGNATURE_KEY_D,
-        x: process.env.SIGNATURE_KEY_X,
-        y: process.env.SIGNATURE_KEY_Y,
-      },
-      'ES256',
-    );
-    const jws = await new jose.CompactSign(
-      new TextEncoder().encode(JSON.stringify(credentialObject)),
-    )
-      .setProtectedHeader({ alg: 'ES256' })
-      .sign(ecPrivateKey);
+    // const ecPrivateKey = await jose.importJWK(
+    //   {
+    //     kty: 'EC',
+    //     crv: 'P-256',
+    //     d: process.env.SIGNATURE_KEY_D,
+    //     x: process.env.SIGNATURE_KEY_X,
+    //     y: process.env.SIGNATURE_KEY_Y,
+    //   },
+    //   'ES256',
+    // );
+    // const jws = await new jose.CompactSign(
+    //   new TextEncoder().encode(JSON.stringify(credentialObject)),
+    // )
+    //   .setProtectedHeader({ alg: 'ES256' })
+    //   .sign(ecPrivateKey);
 
     const credential = await this.credentialsRepository.create({
       email: createDomainCredentialDto.domain,
