@@ -325,18 +325,21 @@ export class CredentialsController {
       email:
         emailCredential[0] &&
         emailCredential[0].credentialStatus ===
-          CredentialVerificationStatus.Success &&
-        formatCredentialForUnion(emailCredential[0]),
+          CredentialVerificationStatus.Success
+          ? formatCredentialForUnion(emailCredential[0])
+          : undefined,
       wallet:
         walletCredential[0] &&
         emailCredential[0].credentialStatus ===
-          CredentialVerificationStatus.Success &&
-        formatCredentialForUnion(walletCredential[0]),
+          CredentialVerificationStatus.Success
+          ? formatCredentialForUnion(walletCredential[0])
+          : undefined,
       domain:
         domainCredential[0] &&
         emailCredential[0].credentialStatus ===
-          CredentialVerificationStatus.Success &&
-        formatCredentialForUnion(domainCredential[0]),
+          CredentialVerificationStatus.Success
+          ? formatCredentialForUnion(domainCredential[0])
+          : undefined,
       membership: memberShipCredentials
         .filter(
           (c) => c.credentialStatus === CredentialVerificationStatus.Success,
@@ -345,8 +348,9 @@ export class CredentialsController {
       connect:
         connectCredential[0] &&
         emailCredential[0].credentialStatus ===
-          CredentialVerificationStatus.Success &&
-        formatCredentialForUnion(connectCredential[0]),
+          CredentialVerificationStatus.Success
+          ? formatCredentialForUnion(connectCredential[0])
+          : undefined,
     };
 
     return { userId, userEmail, credentials };
