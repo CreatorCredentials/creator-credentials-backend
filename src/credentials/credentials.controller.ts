@@ -322,14 +322,35 @@ export class CredentialsController {
     ]);
 
     const credentials = {
-      email: emailCredential[0] && formatCredentialForUnion(emailCredential[0]),
+      email:
+        emailCredential[0] &&
+        emailCredential[0].credentialStatus ===
+          CredentialVerificationStatus.Success
+          ? formatCredentialForUnion(emailCredential[0])
+          : undefined,
       wallet:
-        walletCredential[0] && formatCredentialForUnion(walletCredential[0]),
+        walletCredential[0] &&
+        emailCredential[0].credentialStatus ===
+          CredentialVerificationStatus.Success
+          ? formatCredentialForUnion(walletCredential[0])
+          : undefined,
       domain:
-        domainCredential[0] && formatCredentialForUnion(domainCredential[0]),
-      membership: memberShipCredentials.map(formatCredentialForUnion),
+        domainCredential[0] &&
+        emailCredential[0].credentialStatus ===
+          CredentialVerificationStatus.Success
+          ? formatCredentialForUnion(domainCredential[0])
+          : undefined,
+      membership: memberShipCredentials
+        .filter(
+          (c) => c.credentialStatus === CredentialVerificationStatus.Success,
+        )
+        .map(formatCredentialForUnion),
       connect:
-        connectCredential[0] && formatCredentialForUnion(connectCredential[0]),
+        connectCredential[0] &&
+        emailCredential[0].credentialStatus ===
+          CredentialVerificationStatus.Success
+          ? formatCredentialForUnion(connectCredential[0])
+          : undefined,
     };
 
     return { userId, userEmail, credentials };
