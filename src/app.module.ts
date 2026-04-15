@@ -19,6 +19,7 @@ import { CredentialsModule } from './credentials/credentials.module';
 import { MocksModule } from './mocks/mocks.module';
 import { ConnectionsModule } from './connections/connections.module';
 import { TemplatesModule } from './templates/templates.module';
+import { KeypairChallengeModule } from './keypair-challenge/keypair-challenge.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { TemplatesModule } from './templates/templates.module';
     MocksModule,
     ConnectionsModule,
     TemplatesModule,
+    KeypairChallengeModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -11,6 +11,13 @@ import { CreateDomainCredentialDto } from './dto/create-domain-credential.dto';
 
 const credentialsHost = 'liccium.com';
 
+export function resolveDidKey(user: User): string {
+  if (user.activeDidKeySource === 'external' && user.externalDidKey) {
+    return user.externalDidKey;
+  }
+  return user.didKey;
+}
+
 export async function generateMemberCredentialObjectAndJWS(
   createMemberCredentialDto: CreateMemberCredentialDto,
   creator: User,
@@ -27,7 +34,7 @@ export async function generateMemberCredentialObjectAndJWS(
     validFrom: now.toISOString(),
     validUntil: end.toISOString(),
     credentialSubject: {
-      id: `${creator.didKey}`,
+      id: resolveDidKey(creator),
       memberOf: `did:web:${createMemberCredentialDto.value}`,
     },
     credentialSchema: [
@@ -64,7 +71,7 @@ export async function generateEmailCredentialObjectAndJWS(
     validFrom: now.toISOString(),
     validUntil: end.toISOString(),
     credentialSubject: {
-      id: user.didKey,
+      id: resolveDidKey(user),
       email: createEmailCredentialDto.email,
     },
     credentialSchema: [
@@ -101,7 +108,7 @@ export async function generateDomainCredentialObjectAndJWS(
     validFrom: now.toISOString(),
     validUntil: end.toISOString(),
     credentialSubject: {
-      id: `${user.didKey}`,
+      id: resolveDidKey(user),
       domain: createDomainCredentialDto.domain,
     },
     credentialSchema: [

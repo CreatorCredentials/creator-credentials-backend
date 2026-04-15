@@ -14,6 +14,7 @@ import { Exclude } from 'class-transformer';
 import { Connection } from 'src/connections/connection.entity';
 import { CredentialType } from 'src/shared/typings/CredentialType';
 import { Template } from 'src/templates/template.entity';
+import { KeypairChallenge } from 'src/keypair-challenge/keypair-challenge.entity';
 export enum ClerkRole {
   Issuer = 'issuer',
   Creator = 'creator',
@@ -131,6 +132,18 @@ export class User extends BaseEntity {
     eager: true,
   })
   createdConnections: Connection[];
+
+  @Column({ unique: true, name: 'external_did_key', nullable: true })
+  externalDidKey: string;
+
+  @Column({ name: 'external_public_key_pem', nullable: true, type: 'text' })
+  externalPublicKeyPem: string;
+
+  @Column({ name: 'active_did_key_source', nullable: false, default: 'platform' })
+  activeDidKeySource: string;
+
+  @OneToMany(() => KeypairChallenge, (kc) => kc.user)
+  keypairChallenges: KeypairChallenge[];
 
   @Exclude({ toPlainOnly: true })
   @Column({

@@ -17,6 +17,7 @@ import {
   generateDomainCredentialObjectAndJWS,
   generateEmailCredentialObjectAndJWS,
   generateMemberCredentialObjectAndJWS,
+  resolveDidKey,
 } from './credentials.helpers';
 import { CreateConnectCredentialDto } from './dto/create-connect-credential.dto';
 
@@ -144,7 +145,7 @@ export class CredentialsService {
       validFrom: now.toISOString(),
       validUntil: end.toISOString(),
       credentialSubject: {
-        id: `${user.didKey}`,
+        id: resolveDidKey(user),
         walletAddress: createWalletCredentialDto.publicAddress,
       },
       credentialSchema: [
@@ -430,7 +431,7 @@ export class CredentialsService {
       validFrom: now.toISOString(),
       validUntil: end.toISOString(),
       credentialSubject: {
-        id: `${user.didKey}`,
+        id: resolveDidKey(user),
         didWeb: createDidWebCredentialDto.didWeb,
       },
       credentialSchema: [
