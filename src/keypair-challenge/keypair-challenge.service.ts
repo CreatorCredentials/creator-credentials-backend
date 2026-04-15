@@ -121,9 +121,13 @@ export class KeypairChallengeService {
       challenge.verifiedAt = new Date();
       await this.keypairChallengeRepository.save(challenge);
 
-      user.externalDidKey = challenge.derivedDidKey;
-      user.externalPublicKeyPem = challenge.publicKeyPem;
-      await this.userRepository.save(user);
+      await this.userRepository.update(
+        { id: user.id },
+        {
+          externalDidKey: challenge.derivedDidKey,
+          externalPublicKeyPem: challenge.publicKeyPem,
+        },
+      );
 
       return { verified: true, didKey: challenge.derivedDidKey };
     } catch (e) {
@@ -141,18 +145,23 @@ export class KeypairChallengeService {
   }
 
   async removeExternalKey(user: User) {
-    user.externalDidKey = null;
-    user.externalPublicKeyPem = null;
-    user.activeDidKeySource = 'platform';
-    return this.userRepository.save(user, { reload: true });
+    await this.userRepository.update(
+      { id: user.id },
+      {
+        externalDidKey: null,
+        externalPublicKeyPem: null,
+        activeDidKeySource: 'platform',
+      },
+    );
+    return this.userRepository.findOne({ where: { id: user.id } });
   }
 
   async updateActiveSource(user: User, source: 'platform' | 'external') {
     if (source === 'external' && !user.externalDidKey) {
       throw new BadRequestException('No external DID key registered');
     }
-    user.activeDidKeySource = source;
-    return this.userRepository.save(user, { reload: true });
+    await this.userRepository.update({ id: user.id }, { activeDidKeySource: source });
+    return this.userRepository.findOne({ where: { id: user.id } });
   }
 
   private getGenerationCommands(): string[] {
