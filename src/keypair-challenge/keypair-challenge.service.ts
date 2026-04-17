@@ -24,6 +24,24 @@ export class KeypairChallengeService {
       where: { userId: user.id },
       order: { createdAt: 'DESC' },
     });
+
+    // Heal broken state: verified challenge exists but user columns were never written
+    if (
+      challenge?.status === 'verified' &&
+      challenge.derivedDidKey &&
+      !user.externalDidKey
+    ) {
+      await this.userRepository.update(
+        { id: user.id },
+        {
+          externalDidKey: challenge.derivedDidKey,
+          externalPublicKeyPem: challenge.publicKeyPem,
+        },
+      );
+      user.externalDidKey = challenge.derivedDidKey;
+      user.externalPublicKeyPem = challenge.publicKeyPem;
+    }
+
     return {
       challenge: challenge || null,
       externalDidKey: user.externalDidKey || null,
@@ -145,6 +163,7 @@ export class KeypairChallengeService {
   }
 
   async removeExternalKey(user: User) {
+    await this.keypairChallengeRepository.delete({ userId: user.id });
     await this.userRepository.update(
       { id: user.id },
       {
