@@ -21,12 +21,42 @@ export function resolveDidKey(user: User): string {
 export async function generateMemberCredentialObjectAndJWS(
   createMemberCredentialDto: CreateMemberCredentialDto,
   creator: User,
+  issuer?: User,
 ) {
   const now = new Date();
   const end = new Date();
   end.setFullYear(end.getFullYear() + 1);
 
-  const credentialObject = {
+  const hasVerifiedExternalCert = Boolean(issuer?.externalCertPem);
+  const credentialObject = hasVerifiedExternalCert
+    ? {
+        '@context': ['https://www.w3.org/ns/credentials/v2'],
+        id: `urn:uuid:${uuidv4()}`,
+        type: [
+          'VerifiableCredential',
+          'VerifiableAttestation',
+          'VerifiableMemberCertSigned',
+        ],
+        issuer: `did:web:${credentialsHost}`,
+        validFrom: now.toISOString(),
+        validUntil: end.toISOString(),
+        credentialSubject: {
+          id: resolveDidKey(creator),
+          memberOf: `urn:issuer:${issuer?.id ?? 'unknown'}`,
+        },
+        credentialSchema: [
+          {
+            id: 'https://github.com/CreatorCredentials/specifications/blob/main/json-schema/verification-credentials/member-cert-signed/schema.json',
+            type: 'JsonSchema',
+          },
+        ],
+        termsOfUse: {
+          type: 'PresentationPolicy',
+          confidentialityLevel: 'restricted',
+          pii: 'sensitive',
+        },
+      }
+    : {
     '@context': ['https://www.w3.org/ns/credentials/v2'],
     id: `urn:uuid:${uuidv4()}`,
     type: ['VerifiableCredential', 'VerifiableAttestation', 'VerifiableMember'],
@@ -50,7 +80,11 @@ export async function generateMemberCredentialObjectAndJWS(
     },
   };
 
-  const jws = await signJWTWithX5c(credentialObject);
+  const issuerCertPem =
+    issuer?.activeSigningCertSource === 'external' && issuer?.externalCertPem
+      ? issuer.externalCertPem
+      : undefined;
+  const jws = await signJWTWithX5c(credentialObject, issuerCertPem);
 
   return { credentialObject, jws };
 }
@@ -191,19 +225,26 @@ function derToBase64(derBuffer) {
   }
 }
 // Function to sign JWT with x5c header claim
-export async function signJWTWithX5c(payload) {
+// If issuerCertPem is provided it is used in x5c instead of the platform cert
+export async function signJWTWithX5c(payload, issuerCertPem?: string) {
   try {
     const privateKeyPEM = process.env.HALCOM_CERT_PRIVATE_KEY.replaceAll(
       '\\n',
       '\n',
     );
-    const certFilePath = './certificates/LICCIUM.der'; // Path to the certificate file
 
-    // Read the X.509 certificate from DER file
-    const certDER = await loadDerFile(certFilePath);
-    const certB64 = derToBase64(certDER);
+    let certB64: string;
+    if (issuerCertPem) {
+      // Strip PEM headers/footers and whitespace — what remains is base64-encoded DER
+      certB64 = issuerCertPem
+        .replace(/-----BEGIN CERTIFICATE-----/, '')
+        .replace(/-----END CERTIFICATE-----/, '')
+        .replace(/\s/g, '');
+    } else {
+      const certDER = await loadDerFile('./certificates/LICCIUM.der');
+      certB64 = derToBase64(certDER);
+    }
 
-    // Sign JWT using the private key and add x5c header claim
     const signedJWT = jwt.sign(payload, privateKeyPEM, {
       algorithm: 'RS256',
       header: {

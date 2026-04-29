@@ -20,6 +20,7 @@ import {
   resolveDidKey,
 } from './credentials.helpers';
 import { CreateConnectCredentialDto } from './dto/create-connect-credential.dto';
+import * as crypto from 'crypto';
 
 const credentialsHost = 'liccium.com';
 
@@ -547,6 +548,7 @@ export class CredentialsService {
           did: currentPendingMemberCredential.user.didKey,
         },
         currentPendingMemberCredential.user,
+        issuer,
       );
 
     const credential = currentPendingMemberCredential;
@@ -563,5 +565,163 @@ export class CredentialsService {
       jwt: jws,
     };
     return result;
+  }
+
+  async initiateMemberCredentialAcceptanceWithIssuerCert(
+    issuer: User,
+    credentialId: number,
+  ) {
+    if (!issuer.externalCertPem) {
+      throw new ConflictException(
+        'Issuer must complete certificate challenge before accepting member credentials.',
+      );
+    }
+
+    const currentPendingMemberCredential =
+      await this.credentialsRepository.findOne({
+        where: {
+          credentialType: CredentialType.Member,
+          issuerId: issuer.id,
+          id: credentialId,
+          credentialStatus: CredentialVerificationStatus.Pending,
+        },
+        relations: ['user'],
+      });
+
+    if (!currentPendingMemberCredential) {
+      throw new ConflictException(
+        'Member credential was not requested by user from this issuer.',
+      );
+    }
+
+    const { credentialObject } = await generateMemberCredentialObjectAndJWS(
+      {
+        value: currentPendingMemberCredential.value,
+        did: currentPendingMemberCredential.user.didKey,
+      },
+      currentPendingMemberCredential.user,
+      issuer,
+    );
+
+    const signingInput = this.buildSigningInput(
+      credentialObject,
+      issuer.externalCertPem,
+    );
+    const challenge = {
+      signingInput,
+      credentialObject,
+      initiatedAt: new Date().toISOString(),
+    };
+
+    currentPendingMemberCredential.credentialObject = {
+      ...(currentPendingMemberCredential.credentialObject || {}),
+      __acceptanceChallenge: challenge,
+    };
+    await this.credentialsRepository.save(currentPendingMemberCredential, {
+      reload: true,
+    });
+
+    return {
+      challenge,
+      commands: [
+        `SIG=$(printf %s "${signingInput}" | openssl dgst -sha256 -sign your_private_key.pem -binary | openssl base64 -A | tr -d '\n') && echo "Signature length: ${"${#SIG}"}" && echo "$SIG" && echo "$SIG" | pbcopy`,
+      ],
+    };
+  }
+
+  async verifyMemberCredentialAcceptanceWithIssuerCert(
+    issuer: User,
+    credentialId: number,
+    signatureBase64: string,
+  ): Promise<Credential> {
+    if (!issuer.externalCertPem) {
+      throw new ConflictException(
+        'Issuer must complete certificate challenge before accepting member credentials.',
+      );
+    }
+
+    const currentPendingMemberCredential =
+      await this.credentialsRepository.findOne({
+        where: {
+          credentialType: CredentialType.Member,
+          issuerId: issuer.id,
+          id: credentialId,
+          credentialStatus: CredentialVerificationStatus.Pending,
+        },
+        relations: ['user'],
+      });
+
+    if (!currentPendingMemberCredential) {
+      throw new ConflictException(
+        'Member credential was not requested by user from this issuer.',
+      );
+    }
+
+    const challenge = (currentPendingMemberCredential.credentialObject || {})
+      .__acceptanceChallenge as
+      | { signingInput: string; credentialObject: any }
+      | undefined;
+
+    if (!challenge?.signingInput || !challenge?.credentialObject) {
+      throw new ConflictException('Acceptance challenge not initiated.');
+    }
+
+    const normalizedSignature = signatureBase64.replace(/\s/g, '');
+    const signatureBuffer = Buffer.from(normalizedSignature, 'base64');
+    if (!signatureBuffer.length) {
+      throw new ConflictException('Signature is empty or invalid base64.');
+    }
+    const cert = new crypto.X509Certificate(issuer.externalCertPem);
+    const signatureView = new Uint8Array(signatureBuffer);
+    const isValid = crypto
+      .createVerify('SHA256')
+      .update(challenge.signingInput)
+      .verify(cert.publicKey, signatureView);
+
+    if (!isValid) {
+      throw new ConflictException('Signature verification failed.');
+    }
+
+    const token = `${challenge.signingInput}.${this.toBase64Url(signatureBuffer)}`;
+
+    const credential = currentPendingMemberCredential;
+    credential.credentialStatus = CredentialVerificationStatus.Success;
+    credential.credentialObject = challenge.credentialObject;
+    credential.token = token;
+
+    await this.credentialsRepository.save(credential, { reload: true });
+
+    const result = credential.credentialObject;
+    result.proof = {
+      type: 'JwtProof2020',
+      jwt: token,
+    };
+    return result;
+  }
+
+  private buildSigningInput(payload: any, issuerCertPem: string): string {
+    const certB64 = issuerCertPem
+      .replace(/-----BEGIN CERTIFICATE-----/, '')
+      .replace(/-----END CERTIFICATE-----/, '')
+      .replace(/\s/g, '');
+    const cert = new crypto.X509Certificate(issuerCertPem);
+    const keyType = cert.publicKey.asymmetricKeyType;
+    const alg = keyType === 'ec' ? 'ES256' : 'RS256';
+    const header = {
+      alg,
+      x5c: [certB64],
+      typ: 'JWT',
+    };
+    const encodedHeader = this.toBase64Url(Buffer.from(JSON.stringify(header)));
+    const encodedPayload = this.toBase64Url(Buffer.from(JSON.stringify(payload)));
+    return `${encodedHeader}.${encodedPayload}`;
+  }
+
+  private toBase64Url(input: Buffer): string {
+    return input
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/g, '');
   }
 }

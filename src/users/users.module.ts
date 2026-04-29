@@ -3,6 +3,7 @@ import { UsersService } from './users.service';
 import { UsersController } from './users.controller';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { User } from './user.entity';
+import { Connection } from 'src/connections/connection.entity';
 import { CredentialsModule } from 'src/credentials/credentials.module';
 import { HttpModule } from '@nestjs/axios';
 import { ConnectionsModule } from 'src/connections/connections.module';
@@ -10,7 +11,7 @@ import { CertificatesModule } from 'src/certificates/certificates.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User]),
+    TypeOrmModule.forFeature([User, Connection]),
     forwardRef(() => CredentialsModule),
     forwardRef(() => ConnectionsModule),
     HttpModule,

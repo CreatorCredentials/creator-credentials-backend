@@ -24,7 +24,6 @@ import { CredentialVerificationStatus } from 'src/shared/typings/CredentialVerif
 import { formatCredentialForUnion } from './credentials.formatters';
 import { CredentialType } from 'src/shared/typings/CredentialType';
 import { UsersService } from 'src/users/users.service';
-import { Token, createClerkClient } from '@clerk/clerk-sdk-node';
 import * as jwt from 'jsonwebtoken';
 import axios from 'axios';
 import { TimeoutError, catchError, firstValueFrom } from 'rxjs';
@@ -171,12 +170,16 @@ export class CredentialsController {
       throw new NotFoundException('This issuer is not found.');
     }
 
-    if (!issuer.domain && !issuer.didWeb) {
+    if (!issuer.domain && !issuer.didWeb && !issuer.externalCertPem) {
       throw new NotFoundException('This issuer has not verified himself.');
     }
 
     return this.credentialsService.createPendingMemberCredential(
-      { value: issuer.domain || issuer.didWeb, did: user.didKey },
+      {
+        value:
+          issuer.domain || issuer.didWeb || `issuer-${issuer.id}.cert-verified`,
+        did: user.didKey,
+      },
       user,
       issuerId,
     );
@@ -366,7 +369,28 @@ export class CredentialsController {
       throw new NotFoundException('This api is only for Issuers.');
     }
 
-    return this.credentialsService.createMemberCredential(user, credentialId);
+    return this.credentialsService.initiateMemberCredentialAcceptanceWithIssuerCert(
+      user,
+      credentialId,
+    );
+  }
+
+  @UseGuards(AuthGuard)
+  @Post(':credentialId/accept/verify-signature')
+  async verifyAcceptedCredentialByIssuer(
+    @GetUser() user: User,
+    @Param('credentialId', ParseIntPipe) credentialId: number,
+    @Body('signature') signature: string,
+  ) {
+    if (user.clerkRole !== ClerkRole.Issuer) {
+      throw new NotFoundException('This api is only for Issuers.');
+    }
+
+    return this.credentialsService.verifyMemberCredentialAcceptanceWithIssuerCert(
+      user,
+      credentialId,
+      signature,
+    );
   }
 
   @UseGuards(AuthGuard)

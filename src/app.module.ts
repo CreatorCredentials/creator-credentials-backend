@@ -5,6 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { type Request, type Response } from 'express';
+import type { WithAuthProp } from '@clerk/clerk-sdk-node';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -13,13 +14,15 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { HealthModule } from './health/health.module';
 import { UsersModule } from './users/users.module';
 import LogsMiddleware from './config/logs.middleware';
-import { ClerkExpressWithAuth, RequireAuthProp } from '@clerk/clerk-sdk-node';
+import { ClerkExpressWithAuth } from '@clerk/clerk-sdk-node';
 import { NextFunction } from 'express';
 import { CredentialsModule } from './credentials/credentials.module';
 import { MocksModule } from './mocks/mocks.module';
 import { ConnectionsModule } from './connections/connections.module';
 import { TemplatesModule } from './templates/templates.module';
 import { KeypairChallengeModule } from './keypair-challenge/keypair-challenge.module';
+import { CertChallengeModule } from './cert-challenge/cert-challenge.module';
+import { WebhooksModule } from './webhooks/webhooks.module';
 
 @Module({
   imports: [
@@ -43,6 +46,8 @@ import { KeypairChallengeModule } from './keypair-challenge/keypair-challenge.mo
     ConnectionsModule,
     TemplatesModule,
     KeypairChallengeModule,
+    CertChallengeModule,
+    WebhooksModule,
   ],
   controllers: [AppController],
   providers: [AppService],
@@ -52,17 +57,12 @@ export class AppModule implements NestModule {
     consumer
       .apply(LogsMiddleware)
       .forRoutes('*')
-      .apply(
-        ClerkExpressWithAuth({
-          onError: (error) => {
-            console.log('ClerkExpressWithAuth error: ', error);
-          },
-        }),
-      )
+      .apply(ClerkExpressWithAuth())
       .forRoutes('*')
       .apply(
-        (req: RequireAuthProp<Request>, res: Response, next: NextFunction) => {
-          if (!req.auth.userId && !req.originalUrl.includes('.well-known'))
+        (req: WithAuthProp<Request>, res: Response, next: NextFunction) => {
+          const userId = req.auth?.userId;
+          if (!userId && !req.originalUrl.includes('.well-known'))
             throw new UnauthorizedException();
           next();
         },
@@ -73,6 +73,7 @@ export class AppModule implements NestModule {
         'v1/mocks',
         'v1/mocks/(.*)',
         'v1/credentials/export',
+        'v1/webhooks/(.*)',
       )
       .forRoutes('*');
   }

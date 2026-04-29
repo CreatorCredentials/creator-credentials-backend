@@ -8,7 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository, ArrayContains } from 'typeorm';
 import { CreateUserDto } from './dto/create-user.dto';
 import { ClerkRole, User } from './user.entity';
-import { users } from '@clerk/clerk-sdk-node';
+import { clerkClient } from '@clerk/clerk-sdk-node';
 import { CredentialsService } from 'src/credentials/credentials.service';
 import { JustNonceDto } from './dto/just-nonce.dto';
 
@@ -58,6 +58,8 @@ export class UsersService {
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    @InjectRepository(Connection)
+    private connectionRepository: Repository<Connection>,
     private credentialsService: CredentialsService,
     private configService: ConfigService,
     private httpService: HttpService,
@@ -69,9 +71,11 @@ export class UsersService {
     return Math.floor(Math.random() * 1000000000).toString();
   }
 
-  async generateCertAndDidKey(user: User) {
-    const userFromClerk = await users.getUser(user.clerkId);
-    const email = userFromClerk.emailAddresses[0].emailAddress;
+  async generateCertAndDidKey(user: User, emailOverride?: string) {
+    const email =
+      emailOverride ??
+      (await clerkClient.users.getUser(user.clerkId)).emailAddresses[0]
+        .emailAddress;
     const subject = user.clerkId;
     const countryName = 'EU';
     const stateOrProvinceName = 'EU';
@@ -125,25 +129,45 @@ export class UsersService {
   }
 
   async create(createUserDto: CreateUserDto): Promise<User> {
-    const newUser = new User();
-    const userFromClerk = await users.getUser(createUserDto.clerkId);
-    const email = userFromClerk.emailAddresses[0].emailAddress;
+    // Return the existing record if this clerkId is already in the DB.
+    // This covers repeated register calls for the same session and any
+    // race conditions where two requests arrive before either has committed.
+    const existing = await this.userRepository.findOne({
+      where: { clerkId: createUserDto.clerkId },
+    });
+    if (existing) {
+      return existing;
+    }
 
+    const newUser = new User();
     newUser.clerkId = createUserDto.clerkId;
     newUser.clerkRole = createUserDto.clerkRole;
+    if (createUserDto.description?.trim()) {
+      newUser.description = createUserDto.description.trim();
+    }
+    newUser.nonce = this.generateNonce();
 
-    const nonce = this.generateNonce();
-    newUser.nonce = nonce;
-
-    const result = await this.generateCertAndDidKey(newUser);
+    const result = await this.generateCertAndDidKey(newUser, createUserDto.email);
     newUser.certificate509Buffer = result.certificateBuffer;
     newUser.certificatePrivateKey = result.privateKeyBuffer;
     newUser.didKey = result.didKey;
 
-    const user = await this.userRepository.save(newUser, { reload: true });
+    let user: User;
+    try {
+      user = await this.userRepository.save(newUser, { reload: true });
+    } catch (err) {
+      // PostgreSQL unique_violation (23505) means a concurrent request
+      // already inserted this clerkId — return that row instead.
+      if (err?.code === '23505') {
+        return this.userRepository.findOne({
+          where: { clerkId: createUserDto.clerkId },
+        });
+      }
+      throw err;
+    }
 
     await this.credentialsService.createEmailCredential(
-      { email, did: user.didKey },
+      { email: createUserDto.email, did: user.didKey },
       user,
     );
     return user;
@@ -152,10 +176,10 @@ export class UsersService {
   async assignDidKeyAndReissueEmailCredential(user: User) {
     if (user.certificate509Buffer) return user;
 
-    const userFromClerk = await users.getUser(user.clerkId);
+    const userFromClerk = await clerkClient.users.getUser(user.clerkId);
     const email = userFromClerk.emailAddresses[0].emailAddress;
 
-    const result = await this.generateCertAndDidKey(user);
+    const result = await this.generateCertAndDidKey(user, email);
     user.certificate509Buffer = result.certificateBuffer;
     user.certificatePrivateKey = result.privateKeyBuffer;
     user.didKey = result.didKey;
@@ -169,8 +193,30 @@ export class UsersService {
     );
     return updatedUser;
   }
-  async getByClerkId(clerkId: string): Promise<User> {
+  async getByClerkId(clerkId: string): Promise<User | null> {
+    if (!clerkId) return null;
     return this.userRepository.findOne({ where: { clerkId } });
+  }
+
+  async updateRole(clerkId: string, role: ClerkRole): Promise<void> {
+    await this.userRepository.update({ clerkId }, { clerkRole: role });
+  }
+
+  async updateClerkProfile(
+    clerkId: string,
+    payload: { role: ClerkRole; description?: string },
+  ): Promise<void> {
+    const updatePayload: Partial<User> = { clerkRole: payload.role };
+    if (payload.description?.trim()) {
+      updatePayload.description = payload.description.trim();
+    }
+
+    await this.userRepository.update({ clerkId }, updatePayload);
+  }
+
+  async deleteByClerkId(clerkId: string): Promise<void> {
+    if (!clerkId) return;
+    await this.userRepository.delete({ clerkId });
   }
 
   async getByUserId(userId: number): Promise<User> {
@@ -207,29 +253,43 @@ export class UsersService {
     user: User,
     status: CreatorVerificationStatus = CreatorVerificationStatus.Accepted,
   ): Promise<Creator[]> {
-    let filterStatus =
+    const filterStatus =
       status === CreatorVerificationStatus.Accepted
         ? ConnectionStatus.Accepted
         : ConnectionStatus.Requested;
-    const connections = user.issuedConnections.filter(
-      (c) => c.status === filterStatus,
-    );
 
-    const usersIds = connections.map((c) => c.creatorId);
-    const users = await this.userRepository.find({
-      where: {
-        id: In(usersIds),
-      },
+        console.log('getAllCreatorsOfIssuer getAllCreatorsOfIssuer', filterStatus);
+    console.log('getAllCreatorsOfIssuer user', user);
+    console.log('getAllCreatorsOfIssuer user.id', user.id);
+
+    const connections = await this.connectionRepository.find({
+      where: { issuerId: user.id, status: filterStatus },
+    });
+    console.log('getAllCreatorsOfIssuer connections', connections);
+
+    if (connections.length === 0) return [];
+
+    const creatorIds = connections.map((c) => c.creatorId);
+    console.log('getAllCreatorsOfIssuer creatorIds', creatorIds);
+
+    const creatorUsers = await this.userRepository.find({
+      where: { id: In(creatorIds) },
     });
 
-    const usersMap = {};
-    users.forEach((user) => (usersMap[user.id] = user));
+    console.log('getAllCreatorsOfIssuer  creatorUsers', creatorUsers);
 
-    const creators = connections.map((connection, index) =>
+    const usersMap: Record<number, User> = {};
+    creatorUsers.forEach((u) => (usersMap[u.id] = u));
+
+    console.log('getAllCreatorsOfIssuer usersMap', usersMap);
+
+
+     const result = connections.map((connection) =>
       mapIssuerConnectionToCreator(connection, usersMap[connection.creatorId]),
     );
+    console.log('getAllCreatorsOfIssuer result', result);
 
-    return creators;
+    return result;
   }
 
   async getIssuer(

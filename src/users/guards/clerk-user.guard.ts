@@ -1,17 +1,18 @@
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
+import type { WithAuthProp } from '@clerk/clerk-sdk-node';
+import { type Request } from 'express';
 import { UsersService } from '../users.service';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
   constructor(private usersService: UsersService) {}
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest();
-    const clerkId = request.auth.userId;
-    if (!clerkId) return false;
+    const request = context.switchToHttp().getRequest<WithAuthProp<Request> & { user?: unknown }>();
+    const userId = request.auth?.userId;
+    if (!userId) return false;
 
-    const user = await this.usersService.getByClerkId(clerkId);
+    const user = await this.usersService.getByClerkId(userId);
     request.user = user;
-    // If you want to allow the request even if auth fails, always return true
     return !!user;
   }
 }
