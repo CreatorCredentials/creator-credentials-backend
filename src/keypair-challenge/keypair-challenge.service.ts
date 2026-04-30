@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -9,6 +10,13 @@ import * as crypto from 'crypto';
 import * as baseX from 'base-x';
 import { KeypairChallenge } from './keypair-challenge.entity';
 import { User } from 'src/users/user.entity';
+
+// Statuses we treat as "in progress" — superseded by any new initiate / reset.
+const IN_PROGRESS_STATUSES: KeypairChallenge['status'][] = [
+  'initiated',
+  'challenge_issued',
+  'failed',
+];
 
 @Injectable()
 export class KeypairChallengeService {
@@ -25,35 +33,30 @@ export class KeypairChallengeService {
       order: { createdAt: 'DESC' },
     });
 
-    // Heal broken state: verified challenge exists but user columns were never written
-    if (
-      challenge?.status === 'verified' &&
-      challenge.derivedDidKey &&
-      !user.externalDidKey
-    ) {
-      await this.userRepository.update(
-        { id: user.id },
-        {
-          externalDidKey: challenge.derivedDidKey,
-          externalPublicKeyPem: challenge.publicKeyPem,
-        },
-      );
-      user.externalDidKey = challenge.derivedDidKey;
-      user.externalPublicKeyPem = challenge.publicKeyPem;
-    }
+    // The keypair challenge is intentionally NOT persisted on the user. The
+    // only "external did key" we surface is the one tied to the latest
+    // verified-but-not-yet-consumed challenge — i.e. a keypair the creator
+    // has just proven ownership of and is ready to use for the credential
+    // they are currently requesting. Once the credential request is sent,
+    // that challenge gets consumed and this returns null again.
+    const activeVerifiedChallenge =
+      challenge && challenge.status === 'verified' ? challenge : null;
 
     return {
       challenge: challenge || null,
-      externalDidKey: user.externalDidKey || null,
-      activeDidKeySource: user.activeDidKeySource,
+      externalDidKey: activeVerifiedChallenge?.derivedDidKey ?? null,
+      activeDidKeySource: activeVerifiedChallenge ? 'external' : 'platform',
       commands: challenge ? this.getCommandsForStep(challenge) : null,
     };
   }
 
   async initiate(user: User) {
+    // Wipe both in-progress AND any previously verified-but-unconsumed
+    // challenges so that every credential request starts a brand new
+    // challenge from scratch. A keypair proof is single-use.
     await this.keypairChallengeRepository.delete({
       userId: user.id,
-      status: In(['initiated', 'challenge_issued', 'failed']),
+      status: In([...IN_PROGRESS_STATUSES, 'verified']),
     });
 
     const challenge = this.keypairChallengeRepository.create({
@@ -139,13 +142,9 @@ export class KeypairChallengeService {
       challenge.verifiedAt = new Date();
       await this.keypairChallengeRepository.save(challenge);
 
-      await this.userRepository.update(
-        { id: user.id },
-        {
-          externalDidKey: challenge.derivedDidKey,
-          externalPublicKeyPem: challenge.publicKeyPem,
-        },
-      );
+      // Intentionally NOT writing the verified key to the user record.
+      // The verified challenge is ephemeral and is consumed at credential
+      // request time — see consumeLatestVerified().
 
       return { verified: true, didKey: challenge.derivedDidKey };
     } catch (e) {
@@ -155,31 +154,69 @@ export class KeypairChallengeService {
     }
   }
 
+  /**
+   * Atomically consumes the latest verified-but-unused keypair challenge for
+   * the user, returning the derived did:key and public key PEM that should be
+   * embedded into the credential being requested. If no verified challenge
+   * exists (or it has already been consumed) this returns null and the caller
+   * should treat that as "creator has not proven ownership of a keypair for
+   * this credential request".
+   */
+  async consumeLatestVerified(
+    user: User,
+    credentialId?: number,
+  ): Promise<{ derivedDidKey: string; publicKeyPem: string } | null> {
+    const challenge = await this.keypairChallengeRepository.findOne({
+      where: { userId: user.id, status: 'verified' },
+      order: { createdAt: 'DESC' },
+    });
+    if (!challenge) return null;
+
+    if (!challenge.derivedDidKey || !challenge.publicKeyPem) {
+      throw new ConflictException(
+        'Verified keypair challenge is missing key material; please restart the keypair challenge.',
+      );
+    }
+
+    const snapshot = {
+      derivedDidKey: challenge.derivedDidKey,
+      publicKeyPem: challenge.publicKeyPem,
+    };
+
+    challenge.status = 'consumed';
+    challenge.consumedAt = new Date();
+    if (credentialId) challenge.consumedByCredentialId = credentialId;
+    await this.keypairChallengeRepository.save(challenge);
+
+    return snapshot;
+  }
+
   async reset(user: User) {
+    // Reset wipes every non-terminal challenge state so the creator can
+    // start a fresh proof from scratch. Consumed challenges are kept as
+    // an audit trail of which keys signed which credentials.
     await this.keypairChallengeRepository.delete({
       userId: user.id,
-      status: In(['initiated', 'challenge_issued', 'failed']),
+      status: In([...IN_PROGRESS_STATUSES, 'verified']),
     });
   }
 
   async removeExternalKey(user: User) {
-    await this.keypairChallengeRepository.delete({ userId: user.id });
-    await this.userRepository.update(
-      { id: user.id },
-      {
-        externalDidKey: null,
-        externalPublicKeyPem: null,
-        activeDidKeySource: 'platform',
-      },
-    );
+    // Legacy endpoint — the user table no longer stores any keypair fields,
+    // but consumers may still call this to wipe in-progress / verified rows
+    // and force a clean slate. Consumed (audit) rows are preserved.
+    await this.keypairChallengeRepository.delete({
+      userId: user.id,
+      status: In([...IN_PROGRESS_STATUSES, 'verified']),
+    });
     return this.userRepository.findOne({ where: { id: user.id } });
   }
 
-  async updateActiveSource(user: User, source: 'platform' | 'external') {
-    if (source === 'external' && !user.externalDidKey) {
-      throw new BadRequestException('No external DID key registered');
-    }
-    await this.userRepository.update({ id: user.id }, { activeDidKeySource: source });
+  async updateActiveSource(user: User, _source: 'platform' | 'external') {
+    // The active-source toggle was meaningful when we kept a long-lived
+    // external did:key on the user. With per-credential challenges the
+    // source is determined per-request automatically, so this endpoint
+    // is now a no-op kept for backwards compatibility.
     return this.userRepository.findOne({ where: { id: user.id } });
   }
 

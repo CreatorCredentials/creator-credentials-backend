@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  GoneException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -8,6 +9,9 @@ import { In, Repository } from 'typeorm';
 import * as crypto from 'crypto';
 import { CertChallenge } from './cert-challenge.entity';
 import { User } from 'src/users/user.entity';
+import { CertValidatorService } from './validation/cert-validator.service';
+
+const CHALLENGE_TTL_MINUTES = 10;
 
 @Injectable()
 export class CertChallengeService {
@@ -16,6 +20,7 @@ export class CertChallengeService {
     private certChallengeRepository: Repository<CertChallenge>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    private readonly certValidator: CertValidatorService,
   ) {}
 
   async getStatus(user: User) {
@@ -69,22 +74,20 @@ export class CertChallengeService {
       throw new NotFoundException('No active cert challenge found');
     }
 
-    // Validate X.509 cert
-    let x509: crypto.X509Certificate;
-    try {
-      x509 = new crypto.X509Certificate(certPem);
-    } catch {
-      throw new BadRequestException('Invalid X.509 certificate PEM format');
-    }
-
-    if (new Date(x509.validTo) < new Date()) {
-      throw new BadRequestException('Certificate has expired');
+    // Full eIDAS validation: format, validity window, algorithm allowlist,
+    // key usage, and chain to a QSeal/QSig CA listed in the EU LOTL.
+    const result = await this.certValidator.validateLeafPem(certPem);
+    if (result.ok === false) {
+      throw new BadRequestException(result.reason);
     }
 
     const challengeMessage = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + CHALLENGE_TTL_MINUTES * 60 * 1000);
 
     challenge.certPem = certPem;
+    challenge.certFingerprint = result.fingerprint;
     challenge.challengeMessage = challengeMessage;
+    challenge.expiresAt = expiresAt;
     challenge.status = 'challenge_issued';
     challenge.currentStep = 2;
 
@@ -104,8 +107,37 @@ export class CertChallengeService {
       throw new NotFoundException('No pending cert challenge found');
     }
 
+    if (challenge.expiresAt && challenge.expiresAt.getTime() < Date.now()) {
+      challenge.status = 'failed';
+      await this.certChallengeRepository.save(challenge);
+      throw new GoneException(
+        `Challenge expired at ${challenge.expiresAt.toISOString()}; please restart the cert challenge.`,
+      );
+    }
+
     try {
       const x509 = new crypto.X509Certificate(challenge.certPem);
+
+      // Re-bind the cert to its fingerprint recorded at submit time. This
+      // prevents an attacker from racing a tampered certPem into the row
+      // between submit-cert and verify-signature.
+      const currentFingerprint = crypto
+        .createHash('sha256')
+        .update(x509.raw)
+        .digest('hex');
+      if (
+        challenge.certFingerprint &&
+        currentFingerprint !== challenge.certFingerprint
+      ) {
+        challenge.status = 'failed';
+        await this.certChallengeRepository.save(challenge);
+        return {
+          verified: false,
+          error:
+            'Certificate fingerprint changed since submit; aborting verification.',
+        };
+      }
+
       const publicKey = x509.publicKey;
       const signatureBuffer = Buffer.from(signatureBase64, 'base64');
 

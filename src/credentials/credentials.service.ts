@@ -487,6 +487,7 @@ export class CredentialsService {
     createMemberCredentialDto: CreateMemberCredentialDto,
     user: User,
     issuerId: number,
+    keypairSnapshot?: { derivedDidKey: string; publicKeyPem: string },
   ): Promise<Credential> {
     // TODO prevent creation of new pending credential if credential exists at pending
     // or accepted state for the same creator and issuer pair
@@ -506,13 +507,27 @@ export class CredentialsService {
       );
     }
 
+    // If a verified keypair was just consumed for this request, snapshot it
+    // onto the pending credential so the issuer signs the same did:key the
+    // creator just proved ownership of (rather than the platform-default
+    // did:key). The snapshot is read out again at issuer-accept time.
+    const credentialObject = keypairSnapshot
+      ? {
+          __keypairSnapshot: {
+            derivedDidKey: keypairSnapshot.derivedDidKey,
+            publicKeyPem: keypairSnapshot.publicKeyPem,
+            capturedAt: new Date().toISOString(),
+          },
+        }
+      : {};
+
     const credential = this.credentialsRepository.create({
       email: createMemberCredentialDto.value,
       value: createMemberCredentialDto.value,
       issuerId,
       credentialType: CredentialType.Member,
       credentialStatus: CredentialVerificationStatus.Pending,
-      credentialObject: {},
+      credentialObject,
       token: '',
       user,
     });
@@ -541,14 +556,20 @@ export class CredentialsService {
       );
     }
 
+    const subjectDidKey = this.extractKeypairSnapshotDidKey(
+      currentPendingMemberCredential,
+    );
+
     const { credentialObject, jws } =
       await generateMemberCredentialObjectAndJWS(
         {
           value: currentPendingMemberCredential.value,
-          did: currentPendingMemberCredential.user.didKey,
+          did:
+            subjectDidKey ?? currentPendingMemberCredential.user.didKey,
         },
         currentPendingMemberCredential.user,
         issuer,
+        subjectDidKey,
       );
 
     const credential = currentPendingMemberCredential;
@@ -594,13 +615,18 @@ export class CredentialsService {
       );
     }
 
+    const subjectDidKey = this.extractKeypairSnapshotDidKey(
+      currentPendingMemberCredential,
+    );
+
     const { credentialObject } = await generateMemberCredentialObjectAndJWS(
       {
         value: currentPendingMemberCredential.value,
-        did: currentPendingMemberCredential.user.didKey,
+        did: subjectDidKey ?? currentPendingMemberCredential.user.didKey,
       },
       currentPendingMemberCredential.user,
       issuer,
+      subjectDidKey,
     );
 
     const signingInput = this.buildSigningInput(
@@ -697,6 +723,23 @@ export class CredentialsService {
       jwt: token,
     };
     return result;
+  }
+
+  /**
+   * If the pending credential row was created right after the creator
+   * completed a single-use keypair challenge, the verified did:key was
+   * snapshotted onto the credential's JSON column. We pull it out here so
+   * every downstream issuance path uses the just-proven did:key as the
+   * credentialSubject.id rather than the platform-default did:key. This is
+   * what makes the keypair challenge actually bind to *this* credential.
+   */
+  private extractKeypairSnapshotDidKey(
+    credential: Credential,
+  ): string | undefined {
+    const snapshot = (credential.credentialObject || {}).__keypairSnapshot as
+      | { derivedDidKey?: string }
+      | undefined;
+    return snapshot?.derivedDidKey;
   }
 
   private buildSigningInput(payload: any, issuerCertPem: string): string {

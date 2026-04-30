@@ -22,10 +22,17 @@ export async function generateMemberCredentialObjectAndJWS(
   createMemberCredentialDto: CreateMemberCredentialDto,
   creator: User,
   issuer?: User,
+  subjectDidKeyOverride?: string,
 ) {
   const now = new Date();
   const end = new Date();
   end.setFullYear(end.getFullYear() + 1);
+
+  // When a fresh keypair challenge was just consumed for this credential
+  // request, the caller passes the verified did:key directly. Otherwise we
+  // fall back to whatever the user has configured on their account
+  // (resolveDidKey honours the legacy "external" toggle).
+  const subjectDidKey = subjectDidKeyOverride ?? resolveDidKey(creator);
 
   const hasVerifiedExternalCert = Boolean(issuer?.externalCertPem);
   const credentialObject = hasVerifiedExternalCert
@@ -35,13 +42,13 @@ export async function generateMemberCredentialObjectAndJWS(
         type: [
           'VerifiableCredential',
           'VerifiableAttestation',
-          'VerifiableMemberCertSigned',
+          'VerifiableDataSupplier',
         ],
         issuer: `did:web:${credentialsHost}`,
         validFrom: now.toISOString(),
         validUntil: end.toISOString(),
         credentialSubject: {
-          id: resolveDidKey(creator),
+          id: subjectDidKey,
           memberOf: `urn:issuer:${issuer?.id ?? 'unknown'}`,
         },
         credentialSchema: [
@@ -64,7 +71,7 @@ export async function generateMemberCredentialObjectAndJWS(
     validFrom: now.toISOString(),
     validUntil: end.toISOString(),
     credentialSubject: {
-      id: resolveDidKey(creator),
+      id: subjectDidKey,
       memberOf: `did:web:${createMemberCredentialDto.value}`,
     },
     credentialSchema: [

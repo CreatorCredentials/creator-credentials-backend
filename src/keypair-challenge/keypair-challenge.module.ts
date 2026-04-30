@@ -13,6 +13,6 @@ import { UsersModule } from 'src/users/users.module';
   ],
   controllers: [KeypairChallengeController],
   providers: [KeypairChallengeService],
-  exports: [KeypairChallengeService],
+  exports: [KeypairChallengeService, TypeOrmModule],
 })
 export class KeypairChallengeModule {}

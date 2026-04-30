@@ -31,6 +31,7 @@ import { HttpService } from '@nestjs/axios';
 import { promisify } from 'util';
 import { JwtService } from '@nestjs/jwt';
 import { KeyObject, createPublicKey } from 'crypto';
+import { KeypairChallengeService } from 'src/keypair-challenge/keypair-challenge.service';
 
 const verifyAsync = promisify(jwt.verify);
 
@@ -41,6 +42,7 @@ export class CredentialsController {
     private readonly usersService: UsersService,
     private readonly httpService: HttpService,
     private readonly jwtService: JwtService,
+    private readonly keypairChallengeService: KeypairChallengeService,
   ) {}
 
   @UseGuards(AuthGuard)
@@ -174,14 +176,23 @@ export class CredentialsController {
       throw new NotFoundException('This issuer has not verified himself.');
     }
 
+    // If the creator has just completed a keypair challenge for this
+    // request, snapshot the verified did:key onto the pending credential
+    // and mark the challenge consumed. The challenge is intentionally
+    // single-use — a brand new one will be required for the next credential
+    // the creator requests.
+    const keypairSnapshot =
+      await this.keypairChallengeService.consumeLatestVerified(user);
+
     return this.credentialsService.createPendingMemberCredential(
       {
         value:
           issuer.domain || issuer.didWeb || `issuer-${issuer.id}.cert-verified`,
-        did: user.didKey,
+        did: keypairSnapshot?.derivedDidKey ?? user.didKey,
       },
       user,
       issuerId,
+      keypairSnapshot ?? undefined,
     );
   }
 

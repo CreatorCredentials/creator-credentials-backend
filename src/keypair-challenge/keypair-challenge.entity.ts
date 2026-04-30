@@ -14,6 +14,7 @@ export type KeypairChallengeStatus =
   | 'initiated'
   | 'challenge_issued'
   | 'verified'
+  | 'consumed'
   | 'failed';
 
 @Entity('keypair_challenge')
@@ -43,7 +44,7 @@ export class KeypairChallenge extends BaseEntity {
   @Column({
     name: 'status',
     type: 'enum',
-    enum: ['initiated', 'challenge_issued', 'verified', 'failed'],
+    enum: ['initiated', 'challenge_issued', 'verified', 'consumed', 'failed'],
     enumName: 'keypair_challenge_status_enum',
     default: 'initiated',
   })
@@ -54,6 +55,12 @@ export class KeypairChallenge extends BaseEntity {
 
   @Column({ name: 'verified_at', type: 'timestamp', nullable: true })
   verifiedAt: Date;
+
+  @Column({ name: 'consumed_at', type: 'timestamp', nullable: true })
+  consumedAt: Date;
+
+  @Column({ name: 'consumed_by_credential_id', type: 'integer', nullable: true })
+  consumedByCredentialId: number;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

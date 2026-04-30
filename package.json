@@ -44,7 +44,9 @@
     "@nestjs/schedule": "4.0.2",
     "@nestjs/terminus": "10.2.3",
     "@nestjs/typeorm": "10.0.2",
+    "@peculiar/webcrypto": "^1.7.0",
     "@peculiar/x509": "1.9.7",
+    "@xmldom/xmldom": "^0.8.13",
     "axios": "1.7.2",
     "base-x": "4.0.0",
     "base64url": "3.0.1",
@@ -67,7 +69,9 @@
     "rxjs": "7.8.1",
     "svix": "1.92.2",
     "typeorm": "0.3.19",
-    "uuid": "9.0.1"
+    "uuid": "9.0.1",
+    "xadesjs": "^2.6.7",
+    "xpath": "^0.0.34"
   },
   "devDependencies": {
     "@nestjs/cli": "10.3.2",
