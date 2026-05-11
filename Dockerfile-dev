@@ -14,6 +14,7 @@ RUN npm install -g pnpm
 # Files required by pnpm install
 COPY package.json pnpm-lock.yaml ./
 
+RUN pnpm approve-builds 
 RUN pnpm install 
 RUN mkdir -p node_modules/.cache && chmod -R 777 node_modules/.cache
 
