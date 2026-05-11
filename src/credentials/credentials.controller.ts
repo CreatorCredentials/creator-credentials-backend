@@ -125,6 +125,7 @@ export class CredentialsController {
       memberShipCredentials,
       dataSupplierCredentials,
       connectCredential,
+      keypairVerificationCredentials,
     ] = await Promise.all([
       this.credentialsService.getCredentialsOfUserByType(
         user,
@@ -150,6 +151,10 @@ export class CredentialsController {
         user,
         CredentialType.Connect,
       ),
+      this.credentialsService.getCredentialsOfUserByType(
+        user,
+        CredentialType.ExternalKeypairVerification,
+      ),
     ]);
 
     return {
@@ -164,6 +169,9 @@ export class CredentialsController {
       ].map(formatCredentialForUnion),
       connect:
         connectCredential[0] && formatCredentialForUnion(connectCredential[0]),
+      keypairVerifications: keypairVerificationCredentials.map(
+        formatCredentialForUnion,
+      ),
     };
   }
 
@@ -172,10 +180,21 @@ export class CredentialsController {
   async requestCredentialsFromIssuer(
     @GetUser() user: User,
     @Body('issuerId', ParseIntPipe) issuerId: number,
+    @Body('credentialType') credentialType: string,
   ) {
     if (user.clerkRole !== ClerkRole.Creator) {
       throw new NotFoundException('This api is only for creators.');
     }
+
+    if (
+      credentialType !== CredentialType.Member &&
+      credentialType !== CredentialType.DataSupplier
+    ) {
+      throw new BadRequestException(
+        `credentialType must be ${CredentialType.Member} or ${CredentialType.DataSupplier}.`,
+      );
+    }
+
     const issuer = await this.usersService.getByUserId(issuerId);
     if (!issuer || issuer.clerkRole !== ClerkRole.Issuer) {
       throw new NotFoundException('This issuer is not found.');
@@ -185,46 +204,44 @@ export class CredentialsController {
       throw new NotFoundException('This issuer has not verified himself.');
     }
 
-    // Peek at whether a verified keypair challenge exists to determine the
-    // credential type BEFORE consuming it. This ensures we can validate
-    // against the issuer's credentialsToIssue without side-effects.
-    const willUseKeypair =
-      await this.keypairChallengeService.hasVerifiedChallenge(user);
-    const requestedCredentialType = willUseKeypair
-      ? CredentialType.DataSupplier
-      : CredentialType.Member;
-
-    if (!issuer.credentialsToIssue.includes(requestedCredentialType)) {
+    if (!issuer.credentialsToIssue.includes(credentialType as CredentialType)) {
       throw new BadRequestException(
-        `This issuer does not issue ${requestedCredentialType} credentials.`,
+        `This issuer does not issue ${credentialType} credentials.`,
       );
     }
 
-    // DataSupplier credentials are signed with the issuer's X.509 certificate.
-    // Reject the request if the issuer has not imported one yet.
-    if (
-      requestedCredentialType === CredentialType.DataSupplier &&
-      !issuer.externalCertPem
-    ) {
+    if (!issuer.externalCertPem) {
       throw new BadRequestException(
-        'This issuer has not imported an X.509 certificate and cannot issue Data Supplier credentials.',
+        'This issuer has not imported an X.509 certificate. Please complete the certificate challenge before issuing credentials.',
       );
     }
 
-    // Now consume the keypair snapshot (safe — validation already passed).
-    const keypairSnapshot =
-      await this.keypairChallengeService.consumeLatestVerified(user);
+    const issuerValue =
+      issuer.domain || issuer.didWeb || `issuer-${issuer.id}.cert-verified`;
 
-    return this.credentialsService.createPendingMemberCredential(
-      {
-        value:
-          issuer.domain || issuer.didWeb || `issuer-${issuer.id}.cert-verified`,
-        did: keypairSnapshot?.derivedDidKey ?? user.didKey,
-      },
-      user,
-      issuerId,
-      keypairSnapshot ?? undefined,
-    );
+    if (credentialType === CredentialType.DataSupplier) {
+      const keypairSnapshot =
+        await this.keypairChallengeService.consumeLatestVerified(user);
+
+      if (!keypairSnapshot) {
+        throw new BadRequestException(
+          'Data Supplier credentials require a completed keypair challenge. Please complete the challenge before requesting.',
+        );
+      }
+
+      return this.credentialsService.createPendingDataSupplierCredential(
+        { value: issuerValue, did: keypairSnapshot.derivedDidKey },
+        user,
+        issuerId,
+        keypairSnapshot,
+      );
+    } else {
+      return this.credentialsService.createPendingMembershipCredential(
+        { value: issuerValue, did: user.didKey },
+        user,
+        issuerId,
+      );
+    }
   }
 
   @Post('export')
@@ -416,10 +433,18 @@ export class CredentialsController {
       throw new NotFoundException('This api is only for Issuers.');
     }
 
-    return this.credentialsService.initiateMemberCredentialAcceptanceWithIssuerCert(
-      user,
+    const credentialType = await this.credentialsService.getPendingCredentialType(
       credentialId,
+      user.id,
     );
+
+    if (credentialType === CredentialType.DataSupplier) {
+      return this.credentialsService.initiateDataSupplierCredentialAcceptance(user, credentialId);
+    } else if (credentialType === CredentialType.Member) {
+      return this.credentialsService.initiateMembershipCredentialAcceptance(user, credentialId);
+    } else {
+      throw new NotFoundException('Pending credential not found.');
+    }
   }
 
   @UseGuards(AuthGuard)
@@ -433,11 +458,18 @@ export class CredentialsController {
       throw new NotFoundException('This api is only for Issuers.');
     }
 
-    return this.credentialsService.verifyMemberCredentialAcceptanceWithIssuerCert(
-      user,
+    const credentialType = await this.credentialsService.getPendingCredentialType(
       credentialId,
-      signature,
+      user.id,
     );
+
+    if (credentialType === CredentialType.DataSupplier) {
+      return this.credentialsService.verifyDataSupplierCredentialAcceptance(user, credentialId, signature);
+    } else if (credentialType === CredentialType.Member) {
+      return this.credentialsService.verifyMembershipCredentialAcceptance(user, credentialId, signature);
+    } else {
+      throw new NotFoundException('Pending credential not found.');
+    }
   }
 
   @UseGuards(AuthGuard)

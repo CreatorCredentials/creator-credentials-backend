@@ -4,6 +4,7 @@ import {
   DidWebCredential,
   DomainCredential,
   EmailCredential,
+  ExternalKeypairVerificationCredential,
   MembershipCredential,
   VerifiedCredentialsUnion,
   WalletCredential,
@@ -31,6 +32,8 @@ export function formatCredentialForUnion(
       return formatDataSupplierCredential(credential);
     case CredentialType.Connect:
       return formatConnectCredential(credential);
+    case CredentialType.ExternalKeypairVerification:
+      return formatExternalKeypairVerificationCredential(credential);
     default:
       throw new NotFoundException(
         'CredentialType is not defined properly for credential.',
@@ -185,6 +188,28 @@ export function formatConnectCredential(
       validity: credential.value || 'wrong',
       companyName: DEFAUTL_COMPANY_NAME,
       requirements: 'Info about requirements',
+      userId: credential.userId,
+      credentialObject: {
+        proof: {
+          type: 'JwtProof2020',
+          jwt: credential.token,
+        },
+        ...credential.credentialObject,
+      },
+    },
+  };
+}
+
+export function formatExternalKeypairVerificationCredential(
+  credential: Credential,
+): ExternalKeypairVerificationCredential {
+  return {
+    id: credential.id.toString(),
+    status: credential.credentialStatus,
+    type: CredentialType.ExternalKeypairVerification,
+    data: {
+      sameAs: credential.value || undefined,
+      requirements: 'Platform-issued keypair ownership proof',
       userId: credential.userId,
       credentialObject: {
         proof: {

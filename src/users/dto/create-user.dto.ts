@@ -4,5 +4,6 @@ export class CreateUserDto {
   clerkRole: ClerkRole;
   clerkId: string;
   email: string;
+  name?: string;
   description?: string;
 }

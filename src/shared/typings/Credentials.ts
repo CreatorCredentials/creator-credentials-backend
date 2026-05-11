@@ -92,6 +92,17 @@ export type DidWebCredential = BaseCredential<
   }
 >;
 
+export type ExternalKeypairVerificationCredential = BaseCredential<
+  CredentialType.ExternalKeypairVerification,
+  {
+    sameAs?: string;
+    requirements?: string;
+    userId?: number;
+    // eslint-disable-next-line
+    credentialObject?: any;
+  }
+>;
+
 export type VerifiedCredentialsUnion =
   | EmailCredential
   | WalletCredential
@@ -99,7 +110,8 @@ export type VerifiedCredentialsUnion =
   | MembershipCredential
   | DataSupplierCredential
   | ConnectCredential
-  | DidWebCredential;
+  | DidWebCredential
+  | ExternalKeypairVerificationCredential;
 
 export type CreatorCredentials = {
   email: EmailCredential;
@@ -107,6 +119,7 @@ export type CreatorCredentials = {
   domain: DomainCredential | null;
   connect: ConnectCredential | null;
   membership: MembershipCredential[];
+  keypairVerifications: ExternalKeypairVerificationCredential[];
 };
 
 export type IssuerCredentials = {

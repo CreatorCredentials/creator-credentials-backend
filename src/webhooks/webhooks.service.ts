@@ -9,15 +9,19 @@ interface ClerkEmailAddress {
 
 interface ClerkUserEventData {
   id: string;
+  first_name?: string;
+  last_name?: string;
   primary_email_address_id?: string;
   email_addresses?: ClerkEmailAddress[];
   public_metadata?: {
     role?: string;
     description?: string;
+    name?: string;
   };
   unsafe_metadata?: {
     role?: string;
     description?: string;
+    name?: string;
   };
 }
 
@@ -47,16 +51,18 @@ export class WebhooksService {
     const { id: clerkId } = data;
     const clerkRole = this.resolveRole(this.resolveRoleMetadata(data));
     const description = this.resolveDescriptionMetadata(data);
+    const name = this.resolveNameMetadata(data);
     const email = this.primaryEmail(data);
-    this.logger.log(`user.created: clerkId=${clerkId} role=${clerkRole} email=${email}`);
-    await this.usersService.create({ clerkId, clerkRole, email, description });
+    this.logger.log(`user.created: clerkId=${clerkId} role=${clerkRole} email=${email} name=${name}`);
+    await this.usersService.create({ clerkId, clerkRole, email, name, description });
   }
 
   private async handleUserUpdated(data: ClerkUserEventData) {
     const { id: clerkId } = data;
     const newRole = this.resolveRole(this.resolveRoleMetadata(data));
     const description = this.resolveDescriptionMetadata(data);
-    this.logger.log(`user.updated: clerkId=${clerkId} role=${newRole}`);
+    const name = this.resolveNameMetadata(data);
+    this.logger.log(`user.updated: clerkId=${clerkId} role=${newRole} name=${name}`);
 
     const existing = await this.usersService.getByClerkId(clerkId);
     if (!existing) {
@@ -66,14 +72,17 @@ export class WebhooksService {
         clerkId,
         clerkRole: newRole,
         email,
+        name,
         description,
       });
     } else if (
       existing.clerkRole !== newRole ||
-      (description?.trim() && existing.description !== description.trim())
+      (description?.trim() && existing.description !== description.trim()) ||
+      (name?.trim() && existing.name !== name.trim())
     ) {
       await this.usersService.updateClerkProfile(clerkId, {
         role: newRole,
+        name,
         description,
       });
     }
@@ -104,5 +113,18 @@ export class WebhooksService {
     data: ClerkUserEventData,
   ): string | undefined {
     return data.public_metadata?.description ?? data.unsafe_metadata?.description;
+  }
+
+  private resolveNameMetadata(data: ClerkUserEventData): string | undefined {
+    // Prefer explicit name from metadata, then fall back to Clerk's firstName
+    const metaName =
+      data.public_metadata?.name ?? data.unsafe_metadata?.name;
+    if (metaName?.trim()) return metaName.trim();
+
+    const fromFirstName = [data.first_name, data.last_name]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+    return fromFirstName || undefined;
   }
 }

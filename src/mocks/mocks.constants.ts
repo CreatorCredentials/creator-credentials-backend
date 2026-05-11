@@ -85,6 +85,7 @@ export const MOCK_CREATOR_CREDENTIALS: CreatorCredentials = {
       status: CredentialVerificationStatus.Pending,
     },
   ],
+  keypairVerifications: [],
 };
 
 export const ISSUER_PROFILE = {

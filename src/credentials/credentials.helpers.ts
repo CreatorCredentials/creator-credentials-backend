@@ -18,65 +18,48 @@ export function resolveDidKey(user: User): string {
   return user.didKey;
 }
 
-export async function generateMemberCredentialObjectAndJWS(
+/**
+ * Returns the issuer DID derived from the issuer's verified domain or did:web.
+ * This is what goes into the VC `issuer` field — it must reflect the cert holder,
+ * not the platform. Falls back to the platform DID only for platform-signed VCs
+ * (email, wallet, EKVC, etc.) which call `signJWTWithX5c` without an issuer cert.
+ */
+export function resolveIssuerDid(issuer: User): string {
+  if (issuer.didWeb) return issuer.didWeb;
+  if (issuer.domain) return `did:web:${issuer.domain}`;
+  return `did:web:${credentialsHost}`;
+}
+
+export async function generateMembershipCredentialObjectAndJWS(
   createMemberCredentialDto: CreateMemberCredentialDto,
   creator: User,
-  issuer?: User,
+  issuer: User,
   subjectDidKeyOverride?: string,
 ) {
   const now = new Date();
   const end = new Date();
   end.setFullYear(end.getFullYear() + 1);
 
-  // When a fresh keypair challenge was just consumed for this credential
-  // request, the caller passes the verified did:key directly. Otherwise we
-  // fall back to whatever the user has configured on their account
-  // (resolveDidKey honours the legacy "external" toggle).
   const subjectDidKey = subjectDidKeyOverride ?? resolveDidKey(creator);
 
-  const hasVerifiedExternalCert = Boolean(issuer?.externalCertPem);
-  const credentialObject = hasVerifiedExternalCert
-    ? {
-        '@context': ['https://www.w3.org/ns/credentials/v2'],
-        id: `urn:uuid:${uuidv4()}`,
-        type: [
-          'VerifiableCredential',
-          'VerifiableAttestation',
-          'VerifiableDataSupplier',
-        ],
-        issuer: `did:web:${credentialsHost}`,
-        validFrom: now.toISOString(),
-        validUntil: end.toISOString(),
-        credentialSubject: {
-          id: subjectDidKey,
-          memberOf: `urn:issuer:${issuer?.id ?? 'unknown'}`,
-        },
-        credentialSchema: [
-          {
-            id: 'https://github.com/CreatorCredentials/specifications/blob/main/json-schema/verification-credentials/member-cert-signed/schema.json',
-            type: 'JsonSchema',
-          },
-        ],
-        termsOfUse: {
-          type: 'PresentationPolicy',
-          confidentialityLevel: 'restricted',
-          pii: 'sensitive',
-        },
-      }
-    : {
+  const credentialObject = {
     '@context': ['https://www.w3.org/ns/credentials/v2'],
     id: `urn:uuid:${uuidv4()}`,
-    type: ['VerifiableCredential', 'VerifiableAttestation', 'VerifiableMember'],
-    issuer: `did:web:${credentialsHost}`,
+    type: [
+      'VerifiableCredential',
+      'VerifiableAttestation',
+      'VerifiableMembership',
+    ],
+    issuer: resolveIssuerDid(issuer),
     validFrom: now.toISOString(),
     validUntil: end.toISOString(),
     credentialSubject: {
       id: subjectDidKey,
-      memberOf: `did:web:${createMemberCredentialDto.value}`,
+      memberOf: `urn:issuer:${issuer.id}`,
     },
     credentialSchema: [
       {
-        id: 'https://github.com/CreatorCredentials/specifications/blob/main/json-schema/verification-credentials/member/schema.json',
+        id: 'https://github.com/CreatorCredentials/specifications/blob/main/json-schema/verification-credentials/member-cert-signed/schema.json',
         type: 'JsonSchema',
       },
     ],
@@ -88,10 +71,101 @@ export async function generateMemberCredentialObjectAndJWS(
   };
 
   const issuerCertPem =
-    issuer?.activeSigningCertSource === 'external' && issuer?.externalCertPem
+    issuer.activeSigningCertSource === 'external' && issuer.externalCertPem
       ? issuer.externalCertPem
       : undefined;
   const jws = await signJWTWithX5c(credentialObject, issuerCertPem);
+
+  return { credentialObject, jws };
+}
+
+export async function generateDataSupplierCredentialObjectAndJWS(
+  createMemberCredentialDto: CreateMemberCredentialDto,
+  creator: User,
+  issuer: User,
+  subjectDidKeyOverride?: string,
+) {
+  const now = new Date();
+  const end = new Date();
+  end.setFullYear(end.getFullYear() + 1);
+
+  const subjectDidKey = subjectDidKeyOverride ?? resolveDidKey(creator);
+
+  const credentialObject = {
+    '@context': ['https://www.w3.org/ns/credentials/v2'],
+    id: `urn:uuid:${uuidv4()}`,
+    type: [
+      'VerifiableCredential',
+      'VerifiableAttestation',
+      'VerifiableDataSupplier',
+    ],
+    issuer: resolveIssuerDid(issuer),
+    validFrom: now.toISOString(),
+    validUntil: end.toISOString(),
+    credentialSubject: {
+      id: subjectDidKey,
+      dataSupplierFor: createMemberCredentialDto.value,
+    },
+    credentialSchema: [
+      {
+        id: 'https://github.com/CreatorCredentials/specifications/blob/main/json-schema/verification-credentials/data-supplier-cert-signed/schema.json',
+        type: 'JsonSchema',
+      },
+    ],
+    termsOfUse: {
+      type: 'PresentationPolicy',
+      confidentialityLevel: 'restricted',
+      pii: 'sensitive',
+    },
+  };
+
+  const issuerCertPem =
+    issuer.activeSigningCertSource === 'external' && issuer.externalCertPem
+      ? issuer.externalCertPem
+      : undefined;
+  const jws = await signJWTWithX5c(credentialObject, issuerCertPem);
+
+  return { credentialObject, jws };
+}
+
+export async function generateExternalKeypairVerificationCredentialObjectAndJWS(
+  user: User,
+  derivedDidKey: string,
+  email: string,
+) {
+  const now = new Date();
+  const end = new Date();
+  end.setFullYear(end.getFullYear() + 1);
+
+  const credentialObject = {
+    '@context': ['https://www.w3.org/ns/credentials/v2'],
+    id: `urn:uuid:${uuidv4()}`,
+    type: [
+      'VerifiableCredential',
+      'VerifiableAttestation',
+      'ExternalKeypairVerification',
+    ],
+    issuer: `did:web:${credentialsHost}`,
+    validFrom: now.toISOString(),
+    validUntil: end.toISOString(),
+    credentialSubject: {
+      email,
+      sameAs: derivedDidKey,
+    },
+    credentialSchema: [
+      {
+        id: 'https://github.com/CreatorCredentials/specifications/blob/main/json-schema/verification-credentials/external-keypair/schema.json',
+        type: 'JsonSchema',
+      },
+    ],
+    termsOfUse: {
+      type: 'PresentationPolicy',
+      confidentialityLevel: 'restricted',
+      pii: 'sensitive',
+    },
+  };
+
+  const jws = await signJWTWithX5c(credentialObject);
 
   return { credentialObject, jws };
 }
