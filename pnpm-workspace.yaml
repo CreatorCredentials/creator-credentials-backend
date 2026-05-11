@@ -1,0 +1,6 @@
+onlyBuiltDependencies:
+  - '@clerk/shared'
+  - '@nestjs/core'
+  - keccak
+  - postgresql
+  - secp256k1

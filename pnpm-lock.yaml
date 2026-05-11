@@ -3,12 +3,6 @@ lockfileVersion: '9.0'
 settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
-  onlyBuiltDependencies:
-    - '@clerk/shared'
-    - '@nestjs/core'
-    - keccak
-    - postgresql
-    - secp256k1
 
 importers:
 
