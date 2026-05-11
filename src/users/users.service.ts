@@ -142,6 +142,9 @@ export class UsersService {
     const newUser = new User();
     newUser.clerkId = createUserDto.clerkId;
     newUser.clerkRole = createUserDto.clerkRole;
+    if (createUserDto.name?.trim()) {
+      newUser.name = createUserDto.name.trim();
+    }
     if (createUserDto.description?.trim()) {
       newUser.description = createUserDto.description.trim();
     }
@@ -204,9 +207,12 @@ export class UsersService {
 
   async updateClerkProfile(
     clerkId: string,
-    payload: { role: ClerkRole; description?: string },
+    payload: { role: ClerkRole; name?: string; description?: string },
   ): Promise<void> {
     const updatePayload: Partial<User> = { clerkRole: payload.role };
+    if (payload.name?.trim()) {
+      updatePayload.name = payload.name.trim();
+    }
     if (payload.description?.trim()) {
       updatePayload.description = payload.description.trim();
     }
