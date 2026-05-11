@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository, ArrayContains } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { CreateUserDto } from './dto/create-user.dto';
 import { ClerkRole, User } from './user.entity';
 import { clerkClient } from '@clerk/clerk-sdk-node';
@@ -23,7 +23,7 @@ import { domainVerificationPrefix } from 'src/credentials/credentials.constants'
 import { HttpService } from '@nestjs/axios';
 import * as https from 'https';
 import { TimeoutError, catchError, map, timeout } from 'rxjs';
-import { AVAILABLE_CREDENTIALS, LicciumIssuer } from './users.constants';
+import { LicciumIssuer } from './users.constants';
 import {
   Issuer,
   IssuerWithVerifiedCredentials,
@@ -308,20 +308,13 @@ export class UsersService {
 
   async getAllIssuers(user: User): Promise<IssuerWithVerifiedCredentials[]> {
     const issuers = await this.userRepository.find({
-      where: {
-        clerkRole: ClerkRole.Issuer,
-        credentialsToIssue: ArrayContains<CredentialType>([
-          CredentialType.EMail,
-        ]),
-      },
+      where: { clerkRole: ClerkRole.Issuer },
     });
-    // const filteredIssuer = issuers.filter((issuer) =>
-    //   issuer.issuedConnections.find(
-    //     (c) =>
-    //       c.creatorId === user.id && c.status === ConnectionStatus.Accepted,
-    //   ),
-    // );
-    return this.mapUsersToIssuerResponse(issuers, user);
+    // Only surface issuers that have at least one credential type configured.
+    const activeIssuers = issuers.filter(
+      (i) => i.credentialsToIssue.length > 0,
+    );
+    return this.mapUsersToIssuerResponse(activeIssuers, user);
   }
 
   async getAllConnectedIssuersOfCreator(user: User): Promise<User[]> {
@@ -369,7 +362,25 @@ export class UsersService {
       },
       fees: false,
       status,
-      vcs: AVAILABLE_CREDENTIALS,
+      vcs: issuer.credentialsToIssue
+        .filter((credentialType) => {
+          // DataSupplier credentials require the issuer to have a verified
+          // X.509 certificate. Hide the type when the cert is absent so
+          // creators cannot see or request it.
+          if (credentialType === CredentialType.DataSupplier) {
+            return Boolean(issuer.externalCertPem);
+          }
+          return true;
+        })
+        .map((credentialType) => ({
+          id: credentialType,
+          type: credentialType,
+          status: CredentialVerificationStatus.Success,
+          data: {
+            companyName: issuer.name,
+            requirements: 'Info about requirements',
+          },
+        })) as VerifiedCredentialsUnion[],
     };
   }
 

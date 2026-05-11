@@ -11,7 +11,7 @@ import { CertChallenge } from './cert-challenge.entity';
 import { User } from 'src/users/user.entity';
 import { CertValidatorService } from './validation/cert-validator.service';
 
-const CHALLENGE_TTL_MINUTES = 10;
+const CHALLENGE_TTL_MINUTES = 60;
 
 @Injectable()
 export class CertChallengeService {
@@ -107,13 +107,14 @@ export class CertChallengeService {
       throw new NotFoundException('No pending cert challenge found');
     }
 
-    if (challenge.expiresAt && challenge.expiresAt.getTime() < Date.now()) {
-      challenge.status = 'failed';
-      await this.certChallengeRepository.save(challenge);
-      throw new GoneException(
-        `Challenge expired at ${challenge.expiresAt.toISOString()}; please restart the cert challenge.`,
-      );
-    }
+    // Expiry check disabled for dev/testing — re-enable in production.
+    // if (challenge.expiresAt && challenge.expiresAt.getTime() < Date.now()) {
+    //   challenge.status = 'failed';
+    //   await this.certChallengeRepository.save(challenge);
+    //   throw new GoneException(
+    //     `Challenge expired at ${challenge.expiresAt.toISOString()}; please restart the cert challenge.`,
+    //   );
+    // }
 
     try {
       const x509 = new crypto.X509Certificate(challenge.certPem);

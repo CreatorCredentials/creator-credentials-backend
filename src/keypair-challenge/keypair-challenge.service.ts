@@ -155,6 +155,18 @@ export class KeypairChallengeService {
   }
 
   /**
+   * Returns true if the user has a verified-but-not-yet-consumed keypair
+   * challenge, without consuming it. Used to determine the credential type
+   * before any side-effects are committed.
+   */
+  async hasVerifiedChallenge(user: User): Promise<boolean> {
+    const challenge = await this.keypairChallengeRepository.findOne({
+      where: { userId: user.id, status: 'verified' },
+    });
+    return !!challenge;
+  }
+
+  /**
    * Atomically consumes the latest verified-but-unused keypair challenge for
    * the user, returning the derived did:key and public key PEM that should be
    * embedded into the credential being requested. If no verified challenge

@@ -1,6 +1,6 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ArrayContains, DeleteResult, Repository } from 'typeorm';
+import { ArrayContains, DeleteResult, In, Repository } from 'typeorm';
 import { CreateEmailCredentialDto } from './dto/create-email-credential.dto';
 import { Credential } from './credential.entity';
 import * as jose from 'jose';
@@ -384,6 +384,19 @@ export class CredentialsService {
     createDidWebCredentialDto: CreateDidWebCredentialDto,
     user: User,
   ): Promise<Credential> {
+    const existingPending = await this.credentialsRepository.findOne({
+      where: {
+        credentialType: CredentialType.DidWeb,
+        userId: user.id,
+        credentialStatus: CredentialVerificationStatus.Pending,
+      },
+    });
+    if (existingPending) {
+      throw new ConflictException(
+        'A pending DID Web credential already exists for this user.',
+      );
+    }
+
     const credential = await this.credentialsRepository.create({
       email: createDidWebCredentialDto.didWeb,
       credentialType: CredentialType.DidWeb,
@@ -401,7 +414,7 @@ export class CredentialsService {
     user: User,
   ): Promise<Credential> {
     const currentDidWebCredential = await this.credentialsRepository.findOne({
-      where: { credentialType: CredentialType.DidWeb, userId: user.id },
+      where: { credentialType: CredentialType.DidWeb, userId: user.id,credentialStatus: CredentialVerificationStatus.Pending, },
     });
 
     if (
@@ -476,10 +489,7 @@ export class CredentialsService {
     await this.credentialsRepository.save(credential, { reload: true });
 
     const result = credential.credentialObject;
-    result.proof = {
-      type: 'JwtProof2020',
-      jwt: jws,
-    };
+    result.proof = { type: 'JwtProof2020', jwt: jws };
     return result;
   }
 
@@ -494,16 +504,17 @@ export class CredentialsService {
 
     const currentMemberCredential = await this.credentialsRepository.findOne({
       where: {
-        credentialType: CredentialType.Member,
+        credentialType: In([CredentialType.Member, CredentialType.DataSupplier]),
         issuerId,
         userId: user.id,
+        credentialStatus: CredentialVerificationStatus.Pending,
       },
       relations: ['user'],
     });
 
     if (currentMemberCredential) {
       throw new ConflictException(
-        'Member credential of that issue is already requested by that user.',
+        'A pending credential request of this type already exists. Wait for it to be approved or rejected before submitting a new one.',
       );
     }
 
@@ -525,7 +536,9 @@ export class CredentialsService {
       email: createMemberCredentialDto.value,
       value: createMemberCredentialDto.value,
       issuerId,
-      credentialType: CredentialType.Member,
+      credentialType: keypairSnapshot
+        ? CredentialType.DataSupplier
+        : CredentialType.Member,
       credentialStatus: CredentialVerificationStatus.Pending,
       credentialObject,
       token: '',
@@ -542,7 +555,7 @@ export class CredentialsService {
     const currentPendingMemberCredential =
       await this.credentialsRepository.findOne({
         where: {
-          credentialType: CredentialType.Member,
+          credentialType: In([CredentialType.Member, CredentialType.DataSupplier]),
           issuerId: issuer.id,
           id: credentialId,
           credentialStatus: CredentialVerificationStatus.Pending,
@@ -601,7 +614,7 @@ export class CredentialsService {
     const currentPendingMemberCredential =
       await this.credentialsRepository.findOne({
         where: {
-          credentialType: CredentialType.Member,
+          credentialType: In([CredentialType.Member, CredentialType.DataSupplier]),
           issuerId: issuer.id,
           id: credentialId,
           credentialStatus: CredentialVerificationStatus.Pending,
@@ -669,7 +682,7 @@ export class CredentialsService {
     const currentPendingMemberCredential =
       await this.credentialsRepository.findOne({
         where: {
-          credentialType: CredentialType.Member,
+          credentialType: In([CredentialType.Member, CredentialType.DataSupplier]),
           issuerId: issuer.id,
           id: credentialId,
           credentialStatus: CredentialVerificationStatus.Pending,

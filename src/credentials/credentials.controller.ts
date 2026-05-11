@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Get,
   Post,
@@ -122,6 +123,7 @@ export class CredentialsController {
       walletCredential,
       domainCredential,
       memberShipCredentials,
+      dataSupplierCredentials,
       connectCredential,
     ] = await Promise.all([
       this.credentialsService.getCredentialsOfUserByType(
@@ -142,6 +144,10 @@ export class CredentialsController {
       ),
       this.credentialsService.getCredentialsOfUserByType(
         user,
+        CredentialType.DataSupplier,
+      ),
+      this.credentialsService.getCredentialsOfUserByType(
+        user,
         CredentialType.Connect,
       ),
     ]);
@@ -152,7 +158,10 @@ export class CredentialsController {
         walletCredential[0] && formatCredentialForUnion(walletCredential[0]),
       domain:
         domainCredential[0] && formatCredentialForUnion(domainCredential[0]),
-      membership: memberShipCredentials.map(formatCredentialForUnion),
+      membership: [
+        ...memberShipCredentials,
+        ...dataSupplierCredentials,
+      ].map(formatCredentialForUnion),
       connect:
         connectCredential[0] && formatCredentialForUnion(connectCredential[0]),
     };
@@ -176,11 +185,33 @@ export class CredentialsController {
       throw new NotFoundException('This issuer has not verified himself.');
     }
 
-    // If the creator has just completed a keypair challenge for this
-    // request, snapshot the verified did:key onto the pending credential
-    // and mark the challenge consumed. The challenge is intentionally
-    // single-use — a brand new one will be required for the next credential
-    // the creator requests.
+    // Peek at whether a verified keypair challenge exists to determine the
+    // credential type BEFORE consuming it. This ensures we can validate
+    // against the issuer's credentialsToIssue without side-effects.
+    const willUseKeypair =
+      await this.keypairChallengeService.hasVerifiedChallenge(user);
+    const requestedCredentialType = willUseKeypair
+      ? CredentialType.DataSupplier
+      : CredentialType.Member;
+
+    if (!issuer.credentialsToIssue.includes(requestedCredentialType)) {
+      throw new BadRequestException(
+        `This issuer does not issue ${requestedCredentialType} credentials.`,
+      );
+    }
+
+    // DataSupplier credentials are signed with the issuer's X.509 certificate.
+    // Reject the request if the issuer has not imported one yet.
+    if (
+      requestedCredentialType === CredentialType.DataSupplier &&
+      !issuer.externalCertPem
+    ) {
+      throw new BadRequestException(
+        'This issuer has not imported an X.509 certificate and cannot issue Data Supplier credentials.',
+      );
+    }
+
+    // Now consume the keypair snapshot (safe — validation already passed).
     const keypairSnapshot =
       await this.keypairChallengeService.consumeLatestVerified(user);
 
@@ -311,6 +342,7 @@ export class CredentialsController {
       walletCredential,
       domainCredential,
       memberShipCredentials,
+      dataSupplierCredentials,
       connectCredential,
     ] = await Promise.all([
       this.credentialsService.getCredentialsOfUserByType(
@@ -328,6 +360,10 @@ export class CredentialsController {
       this.credentialsService.getCredentialsOfUserByType(
         user,
         CredentialType.Member,
+      ),
+      this.credentialsService.getCredentialsOfUserByType(
+        user,
+        CredentialType.DataSupplier,
       ),
       this.credentialsService.getCredentialsOfUserByType(
         user,
@@ -354,7 +390,7 @@ export class CredentialsController {
           CredentialVerificationStatus.Success
           ? formatCredentialForUnion(domainCredential[0])
           : undefined,
-      membership: memberShipCredentials
+      membership: [...memberShipCredentials, ...dataSupplierCredentials]
         .filter(
           (c) => c.credentialStatus === CredentialVerificationStatus.Success,
         )

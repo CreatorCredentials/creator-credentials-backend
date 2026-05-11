@@ -56,6 +56,18 @@ export type MembershipCredential = BaseCredential<
   }
 >;
 
+export type DataSupplierCredential = BaseCredential<
+  CredentialType.DataSupplier,
+  {
+    companyName?: string;
+    requirements?: string;
+    validity?: string;
+    userId?: number;
+    // eslint-disable-next-line
+    credentialObject?: any;
+  }
+>;
+
 export type ConnectCredential = BaseCredential<
   CredentialType.Connect,
   {
@@ -85,6 +97,7 @@ export type VerifiedCredentialsUnion =
   | WalletCredential
   | DomainCredential
   | MembershipCredential
+  | DataSupplierCredential
   | ConnectCredential
   | DidWebCredential;
 
