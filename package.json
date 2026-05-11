@@ -97,6 +97,15 @@
     "tsconfig-paths": "4.2.0",
     "typescript": "5.1.3"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@clerk/shared",
+      "@nestjs/core",
+      "keccak",
+      "postgresql",
+      "secp256k1"
+    ]
+  },
   "jest": {
     "moduleFileExtensions": [
       "js",
