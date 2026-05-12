@@ -24,6 +24,12 @@ export function resolveDidKey(user: User): string {
  * not the platform. Falls back to the platform DID only for platform-signed VCs
  * (email, wallet, EKVC, etc.) which call `signJWTWithX5c` without an issuer cert.
  */
+export function resolveMemberOf(issuer: User): string {
+  if (issuer.domain) return `did:web:${issuer.domain}`;
+  if (issuer.didWeb) return issuer.didWeb;
+  return `urn:issuer:${issuer.id}`;
+}
+
 export function resolveIssuerDid(issuer: User): string {
   if (issuer.didWeb) return issuer.didWeb;
   if (issuer.domain) return `did:web:${issuer.domain}`;
@@ -55,7 +61,7 @@ export async function generateMembershipCredentialObjectAndJWS(
     validUntil: end.toISOString(),
     credentialSubject: {
       id: subjectDidKey,
-      memberOf: `urn:issuer:${issuer.id}`,
+      memberOf: resolveMemberOf(issuer),
     },
     credentialSchema: [
       {
@@ -114,8 +120,8 @@ export async function generateDataSupplierCredentialObjectAndJWS(
     ],
     termsOfUse: {
       type: 'PresentationPolicy',
-      confidentialityLevel: 'restricted',
-      pii: 'sensitive',
+      confidentialityLevel: 'public',
+      pii: 'none',
     },
   };
 
