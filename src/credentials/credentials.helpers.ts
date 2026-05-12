@@ -85,6 +85,11 @@ export async function generateMembershipCredentialObjectAndJWS(
   return { credentialObject, jws };
 }
 
+// Workaround: openfuture.eu issues data-supplier credentials that must always
+// target registry.commonsdb.org regardless of what value the DTO carries.
+const OPENFUTURE_ISSUER_DID = 'openfuture.eu';
+const OPENFUTURE_DATA_SUPPLIER_FOR = 'registry.commonsdb.org';
+
 export async function generateDataSupplierCredentialObjectAndJWS(
   createMemberCredentialDto: CreateMemberCredentialDto,
   creator: User,
@@ -96,6 +101,12 @@ export async function generateDataSupplierCredentialObjectAndJWS(
   end.setFullYear(end.getFullYear() + 1);
 
   const subjectDidKey = subjectDidKeyOverride ?? resolveDidKey(creator);
+  const issuerDid = resolveIssuerDid(issuer);
+
+  const dataSupplierFor =
+    issuerDid.includes(OPENFUTURE_ISSUER_DID)
+      ? OPENFUTURE_DATA_SUPPLIER_FOR
+      : createMemberCredentialDto.value;
 
   const credentialObject = {
     '@context': ['https://www.w3.org/ns/credentials/v2'],
@@ -105,12 +116,12 @@ export async function generateDataSupplierCredentialObjectAndJWS(
       'VerifiableAttestation',
       'VerifiableDataSupplier',
     ],
-    issuer: resolveIssuerDid(issuer),
+    issuer: issuerDid,
     validFrom: now.toISOString(),
     validUntil: end.toISOString(),
     credentialSubject: {
       id: subjectDidKey,
-      dataSupplierFor: createMemberCredentialDto.value,
+      dataSupplierFor,
     },
     credentialSchema: [
       {

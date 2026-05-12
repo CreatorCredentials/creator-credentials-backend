@@ -41,7 +41,9 @@ export class UsersController {
 
     const user = await this.usersService.getByClerkId(clerkId);
     if (!user) {
-      throw new NotFoundException('User not found — webhook may not have fired yet');
+      throw new NotFoundException(
+        'User not found — webhook may not have fired yet',
+      );
     }
 
     if (!user.certificate509Buffer) {
@@ -55,6 +57,17 @@ export class UsersController {
   @Get()
   async getUserById(@GetUser() user: User) {
     return user;
+  }
+
+  @UseGuards(AuthGuard)
+  @Get('profile')
+  getIssuerProfile(@GetUser() user: User) {
+    return {
+      companyName: user.name,
+      description: user.description,
+      domain: user.domain ?? '',
+      email: '',
+    };
   }
 
   @UseGuards(AuthGuard)
@@ -160,7 +173,6 @@ export class UsersController {
   ) {
     await this.usersService.createConnection(issuerId, user);
   }
-
 
   @UseGuards(AuthGuard)
   @Get('nonce')
