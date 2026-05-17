@@ -44,7 +44,7 @@ export async function generateMembershipCredentialObjectAndJWS(
 ) {
   const now = new Date();
   const end = new Date();
-  end.setFullYear(end.getFullYear() + 1);
+  end.setFullYear(end.getFullYear() + 3);
 
   const subjectDidKey = subjectDidKeyOverride ?? resolveDidKey(creator);
 
@@ -98,7 +98,7 @@ export async function generateDataSupplierCredentialObjectAndJWS(
 ) {
   const now = new Date();
   const end = new Date();
-  end.setFullYear(end.getFullYear() + 1);
+  end.setFullYear(end.getFullYear() + 3);
 
   const subjectDidKey = subjectDidKeyOverride ?? resolveDidKey(creator);
   const issuerDid = resolveIssuerDid(issuer);
@@ -152,7 +152,7 @@ export async function generateExternalKeypairVerificationCredentialObjectAndJWS(
 ) {
   const now = new Date();
   const end = new Date();
-  end.setFullYear(end.getFullYear() + 1);
+  end.setFullYear(end.getFullYear() + 3);
 
   const credentialObject = {
     '@context': ['https://www.w3.org/ns/credentials/v2'],
@@ -193,7 +193,7 @@ export async function generateEmailCredentialObjectAndJWS(
 ) {
   const now = new Date();
   const end = new Date();
-  end.setFullYear(end.getFullYear() + 1);
+  end.setFullYear(end.getFullYear() + 3);
 
   const credentialObject = {
     '@context': ['https://www.w3.org/ns/credentials/v2'],
@@ -230,7 +230,7 @@ export async function generateDomainCredentialObjectAndJWS(
 ) {
   const now = new Date();
   const end = new Date();
-  end.setFullYear(end.getFullYear() + 1);
+  end.setFullYear(end.getFullYear() + 3);
 
   const credentialObject = {
     '@context': ['https://www.w3.org/ns/credentials/v2'],
@@ -266,7 +266,7 @@ export async function generateConnectCredentialObjectAndJWS(
 ) {
   const now = new Date();
   const end = new Date();
-  end.setFullYear(end.getFullYear() + 1);
+  end.setFullYear(end.getFullYear() + 3);
 
   const credentialObject = {
     '@context': ['https://www.w3.org/ns/credentials/v2'],

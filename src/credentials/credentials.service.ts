@@ -134,7 +134,7 @@ export class CredentialsService {
 
     const now = new Date();
     const end = new Date();
-    end.setFullYear(end.getFullYear() + 1);
+    end.setFullYear(end.getFullYear() + 3);
 
     const credentialObject = {
       '@context': ['https://www.w3.org/ns/credentials/v2'],
@@ -433,7 +433,7 @@ export class CredentialsService {
 
     const now = new Date();
     const end = new Date();
-    end.setFullYear(end.getFullYear() + 1);
+    end.setFullYear(end.getFullYear() + 3);
 
     const credentialObject = {
       '@context': ['https://www.w3.org/ns/credentials/v2'],
