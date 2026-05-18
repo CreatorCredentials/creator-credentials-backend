@@ -48,9 +48,8 @@ import {
 } from 'src/shared/helpers';
 import { mapIssuerConnectionToCreator } from './users.formatters';
 import { CertificatesService } from 'src/certificates/certificates.service';
-import * as x509 from '@peculiar/x509';
 import * as crypto from 'crypto';
-import * as baseX from 'base-x';
+import { publicKeyPemToDid } from 'src/shared/did-key.util';
 import { firstValueFrom } from 'rxjs';
 
 @Injectable()
@@ -109,17 +108,12 @@ export class UsersService {
         subjectURI2,
       });
 
-    const cert = new x509.X509Certificate(certificateBuffer);
-    const publicKey = cert.publicKey.rawData;
-
-    const hash = crypto.createHash('sha256');
-    hash.update(Buffer.from(publicKey));
-    const publicKeyHash = hash.digest();
-
-    const base58 = baseX(
-      '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz',
-    );
-    const didKey = `did:key:${base58.encode(publicKeyHash)}`;
+    const certObject = new crypto.X509Certificate(certificateBuffer);
+    const publicKeyPem = certObject.publicKey.export({
+      type: 'spki',
+      format: 'pem',
+    }) as string;
+    const didKey = publicKeyPemToDid(publicKeyPem);
 
     return {
       certificateBuffer,

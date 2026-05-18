@@ -1,6 +1,84 @@
 import * as crypto from 'crypto';
-import { p256 } from '@noble/curves/nist';
-import { base58 } from '@scure/base';
+
+// ─── Base58 (alphabet) ────────────────────────────────────────────────
+const BASE58_CHARS =
+  '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
+function base58Encode(bytes: Uint8Array): string {
+  let leadingZeros = 0;
+  for (const b of bytes) {
+    if (b !== 0) break;
+    leadingZeros++;
+  }
+  let num = 0n;
+  for (const b of bytes) num = num * 256n + BigInt(b);
+  let out = '';
+  while (num > 0n) {
+    out = BASE58_CHARS[Number(num % 58n)] + out;
+    num /= 58n;
+  }
+  return '1'.repeat(leadingZeros) + out;
+}
+
+function base58Decode(str: string): Uint8Array {
+  let leadingZeros = 0;
+  for (const c of str) {
+    if (c !== '1') break;
+    leadingZeros++;
+  }
+  let num = 0n;
+  for (const c of str) {
+    const idx = BASE58_CHARS.indexOf(c);
+    if (idx === -1) throw new Error(`Invalid base58 character: '${c}'`);
+    num = num * 58n + BigInt(idx);
+  }
+  const out: number[] = [];
+  while (num > 0n) {
+    out.unshift(Number(num & 0xffn));
+    num >>= 8n;
+  }
+  const result = new Uint8Array(leadingZeros + out.length);
+  out.forEach((b, i) => (result[leadingZeros + i] = b));
+  return result;
+}
+
+// ─── P-256 curve constants ────────────────────────────────────────────────────
+// p ≡ 3 (mod 4), so the square root of y² mod p is: y = (y²)^((p+1)/4) mod p
+const P256_P =
+  0xffffffff00000001000000000000000000000000ffffffffffffffffffffffffn;
+const P256_A = P256_P - 3n; // a = -3 mod p
+const P256_B =
+  0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604bn;
+
+function modpow(base: bigint, exp: bigint, mod: bigint): bigint {
+  let result = 1n;
+  let b = base % mod;
+  let e = exp;
+  while (e > 0n) {
+    if (e & 1n) result = (result * b) % mod;
+    e >>= 1n;
+    b = (b * b) % mod;
+  }
+  return result;
+}
+
+/**
+ * Decompresses a 33-byte P-256 compressed public key to 65-byte uncompressed
+ * (0x04 || x || y) using the P-256 curve equation: y² = x³ + ax + b (mod p).
+ */
+function decompressP256Point(compressed: Uint8Array): Uint8Array {
+  if (compressed.length !== 33 || (compressed[0] !== 0x02 && compressed[0] !== 0x03)) {
+    throw new Error('Invalid compressed P-256 point');
+  }
+  const prefix = compressed[0];
+  const x = BigInt('0x' + Buffer.from(compressed.slice(1)).toString('hex'));
+  const rhs = ((modpow(x, 3n, P256_P) + P256_A * x + P256_B) % P256_P + P256_P) % P256_P;
+  let y = modpow(rhs, (P256_P + 1n) / 4n, P256_P);
+  const yIsEven = (y & 1n) === 0n;
+  if ((prefix === 0x02) !== yIsEven) y = P256_P - y;
+  const yBytes = Buffer.from(y.toString(16).padStart(64, '0'), 'hex');
+  return new Uint8Array([0x04, ...compressed.slice(1), ...yBytes]);
+}
 
 /**
  * P-256 multicodec identifier (0x1200) varint-encoded → [0x80, 0x24].
@@ -36,7 +114,7 @@ export function publicKeyPemToDid(publicKeyPem: string): string {
   const compressed = new Uint8Array([prefix, ...x]);
 
   const multicodec = new Uint8Array([...P256_MULTICODEC_PREFIX, ...compressed]);
-  return 'did:key:z' + base58.encode(multicodec);
+  return 'did:key:z' + base58Encode(multicodec);
 }
 
 /**
@@ -47,7 +125,7 @@ export function publicKeyPemToDid(publicKeyPem: string): string {
  *   1. Strip 'did:key:z' (z = base58btc multibase prefix)
  *   2. Base58btc-decode → multicodec bytes
  *   3. Validate and strip 2-byte P-256 prefix [0x80, 0x24]
- *   4. Decompress 33-byte key → full 65-byte (x, y) point via @noble/curves
+ *   4. Decompress 33-byte key → full 65-byte (x, y) point via P-256 curve math
  *   5. Build JWK from x, y → import → export as SPKI PEM
  */
 export function didToPublicKeyPem(did: string): string {
@@ -57,7 +135,7 @@ export function didToPublicKeyPem(did: string): string {
     );
   }
 
-  const decoded = base58.decode(did.slice('did:key:z'.length));
+  const decoded = base58Decode(did.slice('did:key:z'.length));
 
   if (decoded[0] !== 0x80 || decoded[1] !== 0x24) {
     throw new Error(
@@ -67,8 +145,7 @@ export function didToPublicKeyPem(did: string): string {
   }
 
   const compressed = decoded.slice(2);
-  const point = p256.Point.fromHex(Buffer.from(compressed).toString('hex'));
-  const uncompressed = point.toBytes(false);
+  const uncompressed = decompressP256Point(compressed);
 
   const x = Buffer.from(uncompressed.slice(1, 33)).toString('base64url');
   const y = Buffer.from(uncompressed.slice(33, 65)).toString('base64url');
