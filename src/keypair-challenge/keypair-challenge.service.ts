@@ -7,7 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import * as crypto from 'crypto';
-import * as baseX from 'base-x';
+import { publicKeyPemToDid, didToPublicKeyPem } from 'src/shared/did-key.util';
 import { KeypairChallenge } from './keypair-challenge.entity';
 import { User } from 'src/users/user.entity';
 
@@ -93,13 +93,7 @@ export class KeypairChallengeService {
 
     const challengeMessage = crypto.randomBytes(32).toString('hex');
 
-    const keyObject = crypto.createPublicKey(publicKeyPem);
-    const spkiDer = keyObject.export({ type: 'spki', format: 'der' }) as Buffer;
-    const hash = crypto.createHash('sha256').update(spkiDer).digest();
-    const base58Alphabet =
-      '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-    const base58 = baseX(base58Alphabet);
-    const derivedDidKey = `did:key:${base58.encode(hash)}`;
+    const derivedDidKey = publicKeyPemToDid(publicKeyPem);
 
     challenge.publicKeyPem = publicKeyPem;
     challenge.challengeMessage = challengeMessage;
@@ -222,6 +216,10 @@ export class KeypairChallengeService {
       status: In([...IN_PROGRESS_STATUSES, 'verified']),
     });
     return this.userRepository.findOne({ where: { id: user.id } });
+  }
+
+  getPublicKeyPemFromDid(did: string): { publicKeyPem: string } {
+    return { publicKeyPem: didToPublicKeyPem(did) };
   }
 
   async updateActiveSource(user: User, _source: 'platform' | 'external') {

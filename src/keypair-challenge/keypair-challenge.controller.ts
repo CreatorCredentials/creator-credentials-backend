@@ -1,10 +1,12 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
   Get,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from 'src/users/guards/clerk-user.guard';
@@ -22,6 +24,17 @@ export class KeypairChallengeController {
   @Get('status')
   getStatus(@GetUser() user: User) {
     return this.keypairChallengeService.getStatus(user);
+  }
+
+  @UseGuards(AuthGuard)
+  @Get('did-key-pem')
+  getDidKeyPem(@Query('did') did: string) {
+    if (!did) throw new BadRequestException('did query param is required');
+    try {
+      return this.keypairChallengeService.getPublicKeyPemFromDid(did);
+    } catch {
+      throw new BadRequestException('Invalid or unsupported did:key value');
+    }
   }
 
   @UseGuards(AuthGuard)
