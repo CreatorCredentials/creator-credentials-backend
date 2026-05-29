@@ -11,28 +11,224 @@ import { CreateDomainCredentialDto } from './dto/create-domain-credential.dto';
 
 const credentialsHost = 'liccium.com';
 
-export async function generateMemberCredentialObjectAndJWS(
+export function resolveDidKey(user: User): string {
+  if (user.activeDidKeySource === 'external' && user.externalDidKey) {
+    return user.externalDidKey;
+  }
+  return user.didKey;
+}
+
+/**
+ * Returns the issuer DID derived from the issuer's verified domain or did:web.
+ * This is what goes into the VC `issuer` field — it must reflect the cert holder,
+ * not the platform. Falls back to the platform DID only for platform-signed VCs
+ * (email, wallet, EKVC, etc.) which call `signJWTWithX5c` without an issuer cert.
+ */
+export function resolveMemberOf(issuer: User): string {
+  if (issuer.domain) return `did:web:${issuer.domain}`;
+  if (issuer.didWeb) return issuer.didWeb;
+  return `urn:issuer:${issuer.id}`;
+}
+
+export function resolveIssuerDid(issuer: User): string {
+  if (issuer.didWeb) return issuer.didWeb;
+  if (issuer.domain) return `did:web:${issuer.domain}`;
+  return `did:web:${credentialsHost}`;
+}
+
+export async function generateMembershipCredentialObjectAndJWS(
   createMemberCredentialDto: CreateMemberCredentialDto,
   creator: User,
+  issuer: User,
+  subjectDidKeyOverride?: string,
 ) {
   const now = new Date();
   const end = new Date();
-  end.setFullYear(end.getFullYear() + 1);
+  end.setFullYear(end.getFullYear() + 3);
+
+  const subjectDidKey = subjectDidKeyOverride ?? resolveDidKey(creator);
 
   const credentialObject = {
     '@context': ['https://www.w3.org/ns/credentials/v2'],
     id: `urn:uuid:${uuidv4()}`,
-    type: ['VerifiableCredential', 'VerifiableAttestation', 'VerifiableMember'],
+    type: [
+      'VerifiableCredential',
+      'VerifiableAttestation',
+      'VerifiableMembership',
+    ],
+    issuer: resolveIssuerDid(issuer),
+    validFrom: now.toISOString(),
+    validUntil: end.toISOString(),
+    credentialSubject: {
+      id: subjectDidKey,
+      memberOf: resolveMemberOf(issuer),
+    },
+    credentialSchema: [
+      {
+        id: 'https://github.com/CreatorCredentials/specifications/blob/main/json-schema/verification-credentials/member-cert-signed/schema.json',
+        type: 'JsonSchema',
+      },
+    ],
+    termsOfUse: {
+      type: 'PresentationPolicy',
+      confidentialityLevel: 'restricted',
+      pii: 'sensitive',
+    },
+  };
+
+  const issuerCertPem =
+    issuer.activeSigningCertSource === 'external' && issuer.externalCertPem
+      ? issuer.externalCertPem
+      : undefined;
+  const jws = await signJWTWithX5c(credentialObject, issuerCertPem);
+
+  return { credentialObject, jws };
+}
+
+// Workaround: openfuture.eu issues data-supplier credentials that must always
+// target registry.commonsdb.org regardless of what value the DTO carries.
+const OPENFUTURE_ISSUER_DID = 'openfuture.eu';
+const OPENFUTURE_DATA_SUPPLIER_FOR = 'registry.commonsdb.org';
+
+export async function generateDataSupplierCredentialObjectAndJWS(
+  createMemberCredentialDto: CreateMemberCredentialDto,
+  creator: User,
+  issuer: User,
+  subjectDidKeyOverride?: string,
+  organizationName?: string | null,
+) {
+  const now = new Date();
+  const end = new Date();
+  end.setFullYear(end.getFullYear() + 3);
+
+  const subjectDidKey = subjectDidKeyOverride ?? resolveDidKey(creator);
+  const issuerDid = resolveIssuerDid(issuer);
+
+  const dataSupplierFor =
+    issuerDid.includes(OPENFUTURE_ISSUER_DID)
+      ? OPENFUTURE_DATA_SUPPLIER_FOR
+      : createMemberCredentialDto.value;
+
+  const credentialObject = {
+    '@context': ['https://www.w3.org/ns/credentials/v2'],
+    id: `urn:uuid:${uuidv4()}`,
+    type: [
+      'VerifiableCredential',
+      'VerifiableAttestation',
+      'VerifiableDataSupplier',
+    ],
+    issuer: issuerDid,
+    validFrom: now.toISOString(),
+    validUntil: end.toISOString(),
+    credentialSubject: {
+      id: subjectDidKey,
+      dataSupplierFor,
+      ...(organizationName ? { sameAs: organizationName } : {}),
+    },
+    credentialSchema: [
+      {
+        id: 'https://github.com/CreatorCredentials/specifications/blob/main/json-schema/verification-credentials/data-supplier-cert-signed/schema.json',
+        type: 'JsonSchema',
+      },
+    ],
+    termsOfUse: {
+      type: 'PresentationPolicy',
+      confidentialityLevel: 'public',
+      pii: 'none',
+    },
+  };
+
+  const issuerCertPem =
+    issuer.activeSigningCertSource === 'external' && issuer.externalCertPem
+      ? issuer.externalCertPem
+      : undefined;
+  const jws = await signJWTWithX5c(credentialObject, issuerCertPem);
+
+  return { credentialObject, jws };
+}
+
+export async function generateLicciumDataSupplierCredentialObjectAndJWS(
+  createMemberCredentialDto: CreateMemberCredentialDto,
+  creator: User,
+  issuer: User,
+  subjectDidKeyOverride?: string,
+) {
+  const now = new Date();
+  const end = new Date();
+  end.setFullYear(end.getFullYear() + 3);
+
+  const subjectDidKey = subjectDidKeyOverride ?? resolveDidKey(creator);
+  const issuerDid = resolveIssuerDid(issuer);
+
+  const dataSupplierFor =
+    issuerDid.includes(OPENFUTURE_ISSUER_DID)
+      ? OPENFUTURE_DATA_SUPPLIER_FOR
+      : createMemberCredentialDto.value;
+
+  const credentialObject = {
+    '@context': ['https://www.w3.org/ns/credentials/v2'],
+    id: `urn:uuid:${uuidv4()}`,
+    type: [
+      'VerifiableCredential',
+      'VerifiableAttestation',
+      'VerifiableDataSupplier',
+    ],
+    issuer: issuerDid,
+    validFrom: now.toISOString(),
+    validUntil: end.toISOString(),
+    credentialSubject: {
+      id: subjectDidKey,
+      dataSupplierFor,
+    },
+    credentialSchema: [
+      {
+        id: 'https://github.com/CreatorCredentials/specifications/blob/main/json-schema/verification-credentials/data-supplier-cert-signed/schema.json',
+        type: 'JsonSchema',
+      },
+    ],
+    termsOfUse: {
+      type: 'PresentationPolicy',
+      confidentialityLevel: 'public',
+      pii: 'none',
+    },
+  };
+
+  const issuerCertPem =
+    issuer.activeSigningCertSource === 'external' && issuer.externalCertPem
+      ? issuer.externalCertPem
+      : undefined;
+  const jws = await signJWTWithX5c(credentialObject, issuerCertPem);
+
+  return { credentialObject, jws };
+}
+
+export async function generateExternalKeypairVerificationCredentialObjectAndJWS(
+  user: User,
+  derivedDidKey: string,
+  email: string,
+) {
+  const now = new Date();
+  const end = new Date();
+  end.setFullYear(end.getFullYear() + 3);
+
+  const credentialObject = {
+    '@context': ['https://www.w3.org/ns/credentials/v2'],
+    id: `urn:uuid:${uuidv4()}`,
+    type: [
+      'VerifiableCredential',
+      'VerifiableAttestation',
+      'ExternalKeypairVerification',
+    ],
     issuer: `did:web:${credentialsHost}`,
     validFrom: now.toISOString(),
     validUntil: end.toISOString(),
     credentialSubject: {
-      id: `${creator.didKey}`,
-      memberOf: `did:web:${createMemberCredentialDto.value}`,
+      email,
+      sameAs: derivedDidKey,
     },
     credentialSchema: [
       {
-        id: 'https://github.com/CreatorCredentials/specifications/blob/main/json-schema/verification-credentials/member/schema.json',
+        id: 'https://github.com/CreatorCredentials/specifications/blob/main/json-schema/verification-credentials/external-keypair/schema.json',
         type: 'JsonSchema',
       },
     ],
@@ -54,7 +250,7 @@ export async function generateEmailCredentialObjectAndJWS(
 ) {
   const now = new Date();
   const end = new Date();
-  end.setFullYear(end.getFullYear() + 1);
+  end.setFullYear(end.getFullYear() + 3);
 
   const credentialObject = {
     '@context': ['https://www.w3.org/ns/credentials/v2'],
@@ -64,7 +260,7 @@ export async function generateEmailCredentialObjectAndJWS(
     validFrom: now.toISOString(),
     validUntil: end.toISOString(),
     credentialSubject: {
-      id: user.didKey,
+      id: resolveDidKey(user),
       email: createEmailCredentialDto.email,
     },
     credentialSchema: [
@@ -91,7 +287,7 @@ export async function generateDomainCredentialObjectAndJWS(
 ) {
   const now = new Date();
   const end = new Date();
-  end.setFullYear(end.getFullYear() + 1);
+  end.setFullYear(end.getFullYear() + 3);
 
   const credentialObject = {
     '@context': ['https://www.w3.org/ns/credentials/v2'],
@@ -101,7 +297,7 @@ export async function generateDomainCredentialObjectAndJWS(
     validFrom: now.toISOString(),
     validUntil: end.toISOString(),
     credentialSubject: {
-      id: `${user.didKey}`,
+      id: resolveDidKey(user),
       domain: createDomainCredentialDto.domain,
     },
     credentialSchema: [
@@ -127,7 +323,7 @@ export async function generateConnectCredentialObjectAndJWS(
 ) {
   const now = new Date();
   const end = new Date();
-  end.setFullYear(end.getFullYear() + 1);
+  end.setFullYear(end.getFullYear() + 3);
 
   const credentialObject = {
     '@context': ['https://www.w3.org/ns/credentials/v2'],
@@ -184,19 +380,26 @@ function derToBase64(derBuffer) {
   }
 }
 // Function to sign JWT with x5c header claim
-export async function signJWTWithX5c(payload) {
+// If issuerCertPem is provided it is used in x5c instead of the platform cert
+export async function signJWTWithX5c(payload, issuerCertPem?: string) {
   try {
     const privateKeyPEM = process.env.HALCOM_CERT_PRIVATE_KEY.replaceAll(
       '\\n',
       '\n',
     );
-    const certFilePath = './certificates/LICCIUM.der'; // Path to the certificate file
 
-    // Read the X.509 certificate from DER file
-    const certDER = await loadDerFile(certFilePath);
-    const certB64 = derToBase64(certDER);
+    let certB64: string;
+    if (issuerCertPem) {
+      // Strip PEM headers/footers and whitespace — what remains is base64-encoded DER
+      certB64 = issuerCertPem
+        .replace(/-----BEGIN CERTIFICATE-----/, '')
+        .replace(/-----END CERTIFICATE-----/, '')
+        .replace(/\s/g, '');
+    } else {
+      const certDER = await loadDerFile('./certificates/LICCIUM.der');
+      certB64 = derToBase64(certDER);
+    }
 
-    // Sign JWT using the private key and add x5c header claim
     const signedJWT = jwt.sign(payload, privateKeyPEM, {
       algorithm: 'RS256',
       header: {

@@ -8,12 +8,13 @@ import {
   HttpCode,
   HttpStatus,
   NotFoundException,
+  UnauthorizedException,
   Query,
   ParseIntPipe,
+  BadRequestException,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { GetClerkUserAuth } from './get-clerk-auth.decorator';
-import { type AuthObject, clerkClient } from '@clerk/clerk-sdk-node';
 import { ClerkRole, User } from './user.entity';
 import { AuthGuard } from './guards/clerk-user.guard';
 import { GetUser } from './get-user.decorator';
@@ -28,30 +29,46 @@ export class UsersController {
     private readonly credentialsService: CredentialsService,
   ) {}
 
-  @Post('register')
-  async registerUser(@GetClerkUserAuth() auth: AuthObject) {
-    const clerkUser = await clerkClient.users.getUser(auth.userId);
-
-    let role: ClerkRole;
-    switch (clerkUser.publicMetadata.role) {
-      case 'CREATOR':
-        role = ClerkRole.Creator;
-        break;
-      case 'ISSUER':
-        role = ClerkRole.Issuer;
-        break;
+  /**
+   * Returns the current user's record from the database.
+   * User creation is handled by the Clerk webhook (POST /webhooks/clerk).
+   */
+  @Get('check')
+  async getAuthenticatedUser(@GetClerkUserAuth() auth: { userId?: string }) {
+    const clerkId = auth?.userId;
+    if (!clerkId) {
+      throw new UnauthorizedException('No authenticated Clerk session');
     }
 
-    return this.usersService.create({
-      clerkId: auth.userId,
-      clerkRole: role,
-    });
+    const user = await this.usersService.getByClerkId(clerkId);
+    if (!user) {
+      throw new NotFoundException(
+        'User not found — webhook may not have fired yet',
+      );
+    }
+
+    if (!user.certificate509Buffer) {
+      return this.usersService.assignDidKeyAndReissueEmailCredential(user);
+    }
+
+    return user;
   }
 
   @UseGuards(AuthGuard)
   @Get()
   async getUserById(@GetUser() user: User) {
     return user;
+  }
+
+  @UseGuards(AuthGuard)
+  @Get('profile')
+  getIssuerProfile(@GetUser() user: User) {
+    return {
+      companyName: user.name,
+      description: user.description,
+      domain: user.domain ?? '',
+      email: '',
+    };
   }
 
   @UseGuards(AuthGuard)
@@ -158,19 +175,6 @@ export class UsersController {
     await this.usersService.createConnection(issuerId, user);
   }
 
-  @Get('check/:clerkId')
-  async getUserByClerkId(@Param('clerkId') clerkId: string) {
-    const user = await this.usersService.getByClerkId(clerkId);
-    if (user && !user.certificate509Buffer) {
-      const updatedUser =
-        await this.usersService.assignDidKeyAndReissueEmailCredential(user);
-
-      return updatedUser;
-    }
-
-    return user;
-  }
-
   @UseGuards(AuthGuard)
   @Get('nonce')
   async provideNonceOfUser(@GetUser() user: User) {
@@ -259,5 +263,18 @@ export class UsersController {
   @Post('did-web/disconnect')
   async disconnectDidWebFromUser(@GetUser() user: User) {
     return this.usersService.disconnectDidWeb(user.clerkId);
+  }
+
+  @UseGuards(AuthGuard)
+  @Post('organization-name')
+  @HttpCode(HttpStatus.OK)
+  async setOrganizationName(
+    @GetUser() user: User,
+    @Body('organizationName') organizationName: string,
+  ) {
+    if (!organizationName) {
+      throw new BadRequestException('organizationName is required.');
+    }
+    return this.usersService.setOrganizationName(user, organizationName);
   }
 }

@@ -1,8 +1,11 @@
 import {
   ConnectCredential,
+  DataSupplierCredential,
+  LicciumDataSupplierCredential,
   DidWebCredential,
   DomainCredential,
   EmailCredential,
+  ExternalKeypairVerificationCredential,
   MembershipCredential,
   VerifiedCredentialsUnion,
   WalletCredential,
@@ -26,8 +29,14 @@ export function formatCredentialForUnion(
       return formatDomainCredential(credential);
     case CredentialType.Member:
       return formatMemberCredential(credential);
+    case CredentialType.DataSupplier:
+      return formatDataSupplierCredential(credential);
+    case CredentialType.LicciumDataSupplier:
+      return formatLicciumDataSupplierCredential(credential);
     case CredentialType.Connect:
       return formatConnectCredential(credential);
+    case CredentialType.ExternalKeypairVerification:
+      return formatExternalKeypairVerificationCredential(credential);
     default:
       throw new NotFoundException(
         'CredentialType is not defined properly for credential.',
@@ -148,6 +157,52 @@ export function formatMemberCredential(
   };
 }
 
+export function formatDataSupplierCredential(
+  credential: Credential,
+): DataSupplierCredential {
+  return {
+    id: credential.id.toString(),
+    status: credential.credentialStatus,
+    type: CredentialType.DataSupplier,
+    data: {
+      validity: credential.value || 'wrong',
+      companyName: credential?.issuer?.name || DEFAUTL_COMPANY_NAME,
+      requirements: 'Info about requirements',
+      userId: credential.userId,
+      credentialObject: {
+        proof: {
+          type: 'JwtProof2020',
+          jwt: credential.token,
+        },
+        ...credential.credentialObject,
+      },
+    },
+  };
+}
+
+export function formatLicciumDataSupplierCredential(
+  credential: Credential,
+): LicciumDataSupplierCredential {
+  return {
+    id: credential.id.toString(),
+    status: credential.credentialStatus,
+    type: CredentialType.LicciumDataSupplier,
+    data: {
+      validity: credential.value || 'wrong',
+      companyName: credential?.issuer?.name || DEFAUTL_COMPANY_NAME,
+      requirements: 'Info about requirements',
+      userId: credential.userId,
+      credentialObject: {
+        proof: {
+          type: 'JwtProof2020',
+          jwt: credential.token,
+        },
+        ...credential.credentialObject,
+      },
+    },
+  };
+}
+
 export function formatConnectCredential(
   credential: Credential,
 ): ConnectCredential {
@@ -159,6 +214,28 @@ export function formatConnectCredential(
       validity: credential.value || 'wrong',
       companyName: DEFAUTL_COMPANY_NAME,
       requirements: 'Info about requirements',
+      userId: credential.userId,
+      credentialObject: {
+        proof: {
+          type: 'JwtProof2020',
+          jwt: credential.token,
+        },
+        ...credential.credentialObject,
+      },
+    },
+  };
+}
+
+export function formatExternalKeypairVerificationCredential(
+  credential: Credential,
+): ExternalKeypairVerificationCredential {
+  return {
+    id: credential.id.toString(),
+    status: credential.credentialStatus,
+    type: CredentialType.ExternalKeypairVerification,
+    data: {
+      sameAs: credential.value || undefined,
+      requirements: 'Platform-issued keypair ownership proof',
       userId: credential.userId,
       credentialObject: {
         proof: {

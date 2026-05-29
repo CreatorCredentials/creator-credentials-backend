@@ -38,5 +38,8 @@ lerna-debug.log*
 .env
 secrets
 
+# cert folders
 certificates
 openfuture-cert
+
+src/main.ts

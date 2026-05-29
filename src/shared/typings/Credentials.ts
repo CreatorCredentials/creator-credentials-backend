@@ -56,6 +56,30 @@ export type MembershipCredential = BaseCredential<
   }
 >;
 
+export type DataSupplierCredential = BaseCredential<
+  CredentialType.DataSupplier,
+  {
+    companyName?: string;
+    requirements?: string;
+    validity?: string;
+    userId?: number;
+    // eslint-disable-next-line
+    credentialObject?: any;
+  }
+>;
+
+export type LicciumDataSupplierCredential = BaseCredential<
+  CredentialType.LicciumDataSupplier,
+  {
+    companyName?: string;
+    requirements?: string;
+    validity?: string;
+    userId?: number;
+    // eslint-disable-next-line
+    credentialObject?: any;
+  }
+>;
+
 export type ConnectCredential = BaseCredential<
   CredentialType.Connect,
   {
@@ -80,13 +104,27 @@ export type DidWebCredential = BaseCredential<
   }
 >;
 
+export type ExternalKeypairVerificationCredential = BaseCredential<
+  CredentialType.ExternalKeypairVerification,
+  {
+    sameAs?: string;
+    requirements?: string;
+    userId?: number;
+    // eslint-disable-next-line
+    credentialObject?: any;
+  }
+>;
+
 export type VerifiedCredentialsUnion =
   | EmailCredential
   | WalletCredential
   | DomainCredential
   | MembershipCredential
+  | DataSupplierCredential
+  | LicciumDataSupplierCredential
   | ConnectCredential
-  | DidWebCredential;
+  | DidWebCredential
+  | ExternalKeypairVerificationCredential;
 
 export type CreatorCredentials = {
   email: EmailCredential;
@@ -94,6 +132,7 @@ export type CreatorCredentials = {
   domain: DomainCredential | null;
   connect: ConnectCredential | null;
   membership: MembershipCredential[];
+  keypairVerifications: ExternalKeypairVerificationCredential[];
 };
 
 export type IssuerCredentials = {

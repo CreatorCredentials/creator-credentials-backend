@@ -5,10 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository, ArrayContains } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { CreateUserDto } from './dto/create-user.dto';
 import { ClerkRole, User } from './user.entity';
-import { users } from '@clerk/clerk-sdk-node';
+import { clerkClient } from '@clerk/clerk-sdk-node';
 import { CredentialsService } from 'src/credentials/credentials.service';
 import { JustNonceDto } from './dto/just-nonce.dto';
 
@@ -23,7 +23,7 @@ import { domainVerificationPrefix } from 'src/credentials/credentials.constants'
 import { HttpService } from '@nestjs/axios';
 import * as https from 'https';
 import { TimeoutError, catchError, map, timeout } from 'rxjs';
-import { AVAILABLE_CREDENTIALS, LicciumIssuer } from './users.constants';
+import { LicciumIssuer } from './users.constants';
 import {
   Issuer,
   IssuerWithVerifiedCredentials,
@@ -48,9 +48,8 @@ import {
 } from 'src/shared/helpers';
 import { mapIssuerConnectionToCreator } from './users.formatters';
 import { CertificatesService } from 'src/certificates/certificates.service';
-import * as x509 from '@peculiar/x509';
 import * as crypto from 'crypto';
-import * as baseX from 'base-x';
+import { publicKeyPemToDid } from 'src/shared/did-key.util';
 import { firstValueFrom } from 'rxjs';
 
 @Injectable()
@@ -58,6 +57,8 @@ export class UsersService {
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    @InjectRepository(Connection)
+    private connectionRepository: Repository<Connection>,
     private credentialsService: CredentialsService,
     private configService: ConfigService,
     private httpService: HttpService,
@@ -69,9 +70,11 @@ export class UsersService {
     return Math.floor(Math.random() * 1000000000).toString();
   }
 
-  async generateCertAndDidKey(user: User) {
-    const userFromClerk = await users.getUser(user.clerkId);
-    const email = userFromClerk.emailAddresses[0].emailAddress;
+  async generateCertAndDidKey(user: User, emailOverride?: string) {
+    const email =
+      emailOverride ??
+      (await clerkClient.users.getUser(user.clerkId)).emailAddresses[0]
+        .emailAddress;
     const subject = user.clerkId;
     const countryName = 'EU';
     const stateOrProvinceName = 'EU';
@@ -105,17 +108,12 @@ export class UsersService {
         subjectURI2,
       });
 
-    const cert = new x509.X509Certificate(certificateBuffer);
-    const publicKey = cert.publicKey.rawData;
-
-    const hash = crypto.createHash('sha256');
-    hash.update(Buffer.from(publicKey));
-    const publicKeyHash = hash.digest();
-
-    const base58 = baseX(
-      '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz',
-    );
-    const didKey = `did:key:${base58.encode(publicKeyHash)}`;
+    const certObject = new crypto.X509Certificate(certificateBuffer);
+    const publicKeyPem = certObject.publicKey.export({
+      type: 'spki',
+      format: 'pem',
+    }) as string;
+    const didKey = publicKeyPemToDid(publicKeyPem);
 
     return {
       certificateBuffer,
@@ -125,25 +123,48 @@ export class UsersService {
   }
 
   async create(createUserDto: CreateUserDto): Promise<User> {
-    const newUser = new User();
-    const userFromClerk = await users.getUser(createUserDto.clerkId);
-    const email = userFromClerk.emailAddresses[0].emailAddress;
+    // Return the existing record if this clerkId is already in the DB.
+    // This covers repeated register calls for the same session and any
+    // race conditions where two requests arrive before either has committed.
+    const existing = await this.userRepository.findOne({
+      where: { clerkId: createUserDto.clerkId },
+    });
+    if (existing) {
+      return existing;
+    }
 
+    const newUser = new User();
     newUser.clerkId = createUserDto.clerkId;
     newUser.clerkRole = createUserDto.clerkRole;
+    if (createUserDto.name?.trim()) {
+      newUser.name = createUserDto.name.trim();
+    }
+    if (createUserDto.description?.trim()) {
+      newUser.description = createUserDto.description.trim();
+    }
+    newUser.nonce = this.generateNonce();
 
-    const nonce = this.generateNonce();
-    newUser.nonce = nonce;
-
-    const result = await this.generateCertAndDidKey(newUser);
+    const result = await this.generateCertAndDidKey(newUser, createUserDto.email);
     newUser.certificate509Buffer = result.certificateBuffer;
     newUser.certificatePrivateKey = result.privateKeyBuffer;
     newUser.didKey = result.didKey;
 
-    const user = await this.userRepository.save(newUser, { reload: true });
+    let user: User;
+    try {
+      user = await this.userRepository.save(newUser, { reload: true });
+    } catch (err) {
+      // PostgreSQL unique_violation (23505) means a concurrent request
+      // already inserted this clerkId — return that row instead.
+      if (err?.code === '23505') {
+        return this.userRepository.findOne({
+          where: { clerkId: createUserDto.clerkId },
+        });
+      }
+      throw err;
+    }
 
     await this.credentialsService.createEmailCredential(
-      { email, did: user.didKey },
+      { email: createUserDto.email, did: user.didKey },
       user,
     );
     return user;
@@ -152,10 +173,10 @@ export class UsersService {
   async assignDidKeyAndReissueEmailCredential(user: User) {
     if (user.certificate509Buffer) return user;
 
-    const userFromClerk = await users.getUser(user.clerkId);
+    const userFromClerk = await clerkClient.users.getUser(user.clerkId);
     const email = userFromClerk.emailAddresses[0].emailAddress;
 
-    const result = await this.generateCertAndDidKey(user);
+    const result = await this.generateCertAndDidKey(user, email);
     user.certificate509Buffer = result.certificateBuffer;
     user.certificatePrivateKey = result.privateKeyBuffer;
     user.didKey = result.didKey;
@@ -169,13 +190,47 @@ export class UsersService {
     );
     return updatedUser;
   }
-  async getByClerkId(clerkId: string): Promise<User> {
+  async getByClerkId(clerkId: string): Promise<User | null> {
+    if (!clerkId) return null;
     return this.userRepository.findOne({ where: { clerkId } });
+  }
+
+  async updateRole(clerkId: string, role: ClerkRole): Promise<void> {
+    await this.userRepository.update({ clerkId }, { clerkRole: role });
+  }
+
+  async updateClerkProfile(
+    clerkId: string,
+    payload: { role: ClerkRole; name?: string; description?: string },
+  ): Promise<void> {
+    const updatePayload: Partial<User> = { clerkRole: payload.role };
+    if (payload.name?.trim()) {
+      updatePayload.name = payload.name.trim();
+    }
+    if (payload.description?.trim()) {
+      updatePayload.description = payload.description.trim();
+    }
+
+    await this.userRepository.update({ clerkId }, updatePayload);
+  }
+
+  async deleteByClerkId(clerkId: string): Promise<void> {
+    if (!clerkId) return;
+    await this.userRepository.delete({ clerkId });
   }
 
   async getByUserId(userId: number): Promise<User> {
     return this.userRepository.findOne({ where: { id: userId } });
   }
+  private async getClerkImageUrl(clerkId: string): Promise<string> {
+    try {
+      const clerkUser = await clerkClient.users.getUser(clerkId);
+      return clerkUser.hasImage ? clerkUser.imageUrl : '';
+    } catch {
+      return '';
+    }
+  }
+
   async getCreatorOfIssuer(
     creatorId: number,
     user: User,
@@ -197,8 +252,10 @@ export class UsersService {
       },
     });
 
+    const clerkImageUrl = await this.getClerkImageUrl(creator.clerkId);
+
     return {
-      creator: mapIssuerConnectionToCreator(connection, creator),
+      creator: mapIssuerConnectionToCreator(connection, creator, clerkImageUrl),
       credentials: creator.credentials.map(formatCredentialForUnion),
     };
   }
@@ -207,29 +264,54 @@ export class UsersService {
     user: User,
     status: CreatorVerificationStatus = CreatorVerificationStatus.Accepted,
   ): Promise<Creator[]> {
-    let filterStatus =
+    const filterStatus =
       status === CreatorVerificationStatus.Accepted
         ? ConnectionStatus.Accepted
         : ConnectionStatus.Requested;
-    const connections = user.issuedConnections.filter(
-      (c) => c.status === filterStatus,
-    );
 
-    const usersIds = connections.map((c) => c.creatorId);
-    const users = await this.userRepository.find({
-      where: {
-        id: In(usersIds),
-      },
+        console.log('getAllCreatorsOfIssuer getAllCreatorsOfIssuer', filterStatus);
+    console.log('getAllCreatorsOfIssuer user', user);
+    console.log('getAllCreatorsOfIssuer user.id', user.id);
+
+    const connections = await this.connectionRepository.find({
+      where: { issuerId: user.id, status: filterStatus },
+    });
+    console.log('getAllCreatorsOfIssuer connections', connections);
+
+    if (connections.length === 0) return [];
+
+    const creatorIds = connections.map((c) => c.creatorId);
+    console.log('getAllCreatorsOfIssuer creatorIds', creatorIds);
+
+    const creatorUsers = await this.userRepository.find({
+      where: { id: In(creatorIds) },
     });
 
-    const usersMap = {};
-    users.forEach((user) => (usersMap[user.id] = user));
+    console.log('getAllCreatorsOfIssuer  creatorUsers', creatorUsers);
 
-    const creators = connections.map((connection, index) =>
-      mapIssuerConnectionToCreator(connection, usersMap[connection.creatorId]),
+    const usersMap: Record<number, User> = {};
+    creatorUsers.forEach((u) => (usersMap[u.id] = u));
+
+    console.log('getAllCreatorsOfIssuer usersMap', usersMap);
+
+    const clerkImageUrls = await Promise.all(
+      creatorUsers.map((u) => this.getClerkImageUrl(u.clerkId)),
     );
+    const clerkImageUrlMap: Record<number, string> = {};
+    creatorUsers.forEach((u, i) => {
+      clerkImageUrlMap[u.id] = clerkImageUrls[i];
+    });
 
-    return creators;
+     const result = connections.map((connection) =>
+      mapIssuerConnectionToCreator(
+        connection,
+        usersMap[connection.creatorId],
+        clerkImageUrlMap[connection.creatorId] ?? '',
+      ),
+    );
+    console.log('getAllCreatorsOfIssuer result', result);
+
+    return result;
   }
 
   async getIssuer(
@@ -243,25 +325,24 @@ export class UsersService {
       },
     });
 
-    return this.mapUserToIssuerResponse(issuer, user);
+    const clerkImageUrl = await this.getClerkImageUrl(issuer.clerkId);
+    return this.mapUserToIssuerResponse(issuer, user, clerkImageUrl);
   }
 
   async getAllIssuers(user: User): Promise<IssuerWithVerifiedCredentials[]> {
     const issuers = await this.userRepository.find({
-      where: {
-        clerkRole: ClerkRole.Issuer,
-        credentialsToIssue: ArrayContains<CredentialType>([
-          CredentialType.EMail,
-        ]),
-      },
+      where: { clerkRole: ClerkRole.Issuer },
     });
-    // const filteredIssuer = issuers.filter((issuer) =>
-    //   issuer.issuedConnections.find(
-    //     (c) =>
-    //       c.creatorId === user.id && c.status === ConnectionStatus.Accepted,
-    //   ),
-    // );
-    return this.mapUsersToIssuerResponse(issuers, user);
+    // Only surface issuers that have at least one credential type configured.
+    const activeIssuers = issuers.filter(
+      (i) => i.credentialsToIssue.length > 0,
+    );
+    const clerkImageUrls = await Promise.all(
+      activeIssuers.map((i) => this.getClerkImageUrl(i.clerkId)),
+    );
+    return activeIssuers.map((issuer, idx) =>
+      this.mapUserToIssuerResponse(issuer, user, clerkImageUrls[idx]),
+    );
   }
 
   async getAllConnectedIssuersOfCreator(user: User): Promise<User[]> {
@@ -275,7 +356,7 @@ export class UsersService {
     return issuers;
   }
 
-  private mapUserToIssuerResponse(issuer: User, creator: User) {
+  private mapUserToIssuerResponse(issuer: User, creator: User, clerkImageUrl = '') {
     const statusesToCheck = [
       ConnectionStatus.Accepted,
       ConnectionStatus.Requested,
@@ -302,25 +383,36 @@ export class UsersService {
       id: issuer.id.toString(),
       name: issuer.name,
       description: issuer.description,
-      imageUrl: issuer.imageUrl,
+      imageUrl: clerkImageUrl,
       data: {
         domain: issuer.domain,
         requirements: 'Info about requirements',
       },
       fees: false,
       status,
-      vcs: AVAILABLE_CREDENTIALS,
+      vcs: issuer.credentialsToIssue
+        .filter((credentialType) => {
+          // DataSupplier credentials require the issuer to have a verified
+          // X.509 certificate. Hide the type when the cert is absent so
+          // creators cannot see or request it.
+          if (credentialType === CredentialType.DataSupplier) {
+            return Boolean(issuer.externalCertPem);
+          }
+          return true;
+        })
+        .map((credentialType) => ({
+          id: credentialType,
+          type: credentialType,
+          status: CredentialVerificationStatus.Success,
+          data: {
+            companyName: issuer.name,
+            requirements: 'Info about requirements',
+          },
+        })) as VerifiedCredentialsUnion[],
     };
   }
 
-  private mapUsersToIssuerResponse(
-    issuers: User[],
-    creator: User,
-  ): IssuerWithVerifiedCredentials[] {
-    return issuers.map((issuer) =>
-      this.mapUserToIssuerResponse(issuer, creator),
-    );
-  }
+
 
   async updateNonce(clerkId: string): Promise<User> {
     const user = await this.userRepository.findOneBy({ clerkId });
@@ -676,5 +768,26 @@ export class UsersService {
       },
     });
     await this.connectionsService.revokeConnection([creator, user]);
+  }
+
+  async setOrganizationName(user: User, organizationName: string): Promise<User> {
+    if (user.organizationName !== null && user.organizationName !== undefined) {
+      throw new HttpException(
+        'Organization name is already set and cannot be changed. To update it please contact info@liccium.com.',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const trimmed = organizationName.trim();
+    if (!trimmed) {
+      throw new HttpException(
+        'Organization name must not be empty.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    await this.userRepository.update({ id: user.id }, { organizationName: trimmed });
+
+    return this.userRepository.findOne({ where: { id: user.id } });
   }
 }
