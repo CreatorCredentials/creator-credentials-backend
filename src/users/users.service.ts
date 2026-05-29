@@ -222,6 +222,15 @@ export class UsersService {
   async getByUserId(userId: number): Promise<User> {
     return this.userRepository.findOne({ where: { id: userId } });
   }
+  private async getClerkImageUrl(clerkId: string): Promise<string> {
+    try {
+      const clerkUser = await clerkClient.users.getUser(clerkId);
+      return clerkUser.hasImage ? clerkUser.imageUrl : '';
+    } catch {
+      return '';
+    }
+  }
+
   async getCreatorOfIssuer(
     creatorId: number,
     user: User,
@@ -243,8 +252,10 @@ export class UsersService {
       },
     });
 
+    const clerkImageUrl = await this.getClerkImageUrl(creator.clerkId);
+
     return {
-      creator: mapIssuerConnectionToCreator(connection, creator),
+      creator: mapIssuerConnectionToCreator(connection, creator, clerkImageUrl),
       credentials: creator.credentials.map(formatCredentialForUnion),
     };
   }
@@ -283,9 +294,20 @@ export class UsersService {
 
     console.log('getAllCreatorsOfIssuer usersMap', usersMap);
 
+    const clerkImageUrls = await Promise.all(
+      creatorUsers.map((u) => this.getClerkImageUrl(u.clerkId)),
+    );
+    const clerkImageUrlMap: Record<number, string> = {};
+    creatorUsers.forEach((u, i) => {
+      clerkImageUrlMap[u.id] = clerkImageUrls[i];
+    });
 
      const result = connections.map((connection) =>
-      mapIssuerConnectionToCreator(connection, usersMap[connection.creatorId]),
+      mapIssuerConnectionToCreator(
+        connection,
+        usersMap[connection.creatorId],
+        clerkImageUrlMap[connection.creatorId] ?? '',
+      ),
     );
     console.log('getAllCreatorsOfIssuer result', result);
 
@@ -303,7 +325,8 @@ export class UsersService {
       },
     });
 
-    return this.mapUserToIssuerResponse(issuer, user);
+    const clerkImageUrl = await this.getClerkImageUrl(issuer.clerkId);
+    return this.mapUserToIssuerResponse(issuer, user, clerkImageUrl);
   }
 
   async getAllIssuers(user: User): Promise<IssuerWithVerifiedCredentials[]> {
@@ -314,7 +337,12 @@ export class UsersService {
     const activeIssuers = issuers.filter(
       (i) => i.credentialsToIssue.length > 0,
     );
-    return this.mapUsersToIssuerResponse(activeIssuers, user);
+    const clerkImageUrls = await Promise.all(
+      activeIssuers.map((i) => this.getClerkImageUrl(i.clerkId)),
+    );
+    return activeIssuers.map((issuer, idx) =>
+      this.mapUserToIssuerResponse(issuer, user, clerkImageUrls[idx]),
+    );
   }
 
   async getAllConnectedIssuersOfCreator(user: User): Promise<User[]> {
@@ -328,7 +356,7 @@ export class UsersService {
     return issuers;
   }
 
-  private mapUserToIssuerResponse(issuer: User, creator: User) {
+  private mapUserToIssuerResponse(issuer: User, creator: User, clerkImageUrl = '') {
     const statusesToCheck = [
       ConnectionStatus.Accepted,
       ConnectionStatus.Requested,
@@ -355,7 +383,7 @@ export class UsersService {
       id: issuer.id.toString(),
       name: issuer.name,
       description: issuer.description,
-      imageUrl: issuer.imageUrl,
+      imageUrl: clerkImageUrl,
       data: {
         domain: issuer.domain,
         requirements: 'Info about requirements',
@@ -384,14 +412,7 @@ export class UsersService {
     };
   }
 
-  private mapUsersToIssuerResponse(
-    issuers: User[],
-    creator: User,
-  ): IssuerWithVerifiedCredentials[] {
-    return issuers.map((issuer) =>
-      this.mapUserToIssuerResponse(issuer, creator),
-    );
-  }
+
 
   async updateNonce(clerkId: string): Promise<User> {
     const user = await this.userRepository.findOneBy({ clerkId });
@@ -747,5 +768,26 @@ export class UsersService {
       },
     });
     await this.connectionsService.revokeConnection([creator, user]);
+  }
+
+  async setOrganizationName(user: User, organizationName: string): Promise<User> {
+    if (user.organizationName !== null && user.organizationName !== undefined) {
+      throw new HttpException(
+        'Organization name is already set and cannot be changed. To update it please contact info@liccium.com.',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const trimmed = organizationName.trim();
+    if (!trimmed) {
+      throw new HttpException(
+        'Organization name must not be empty.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    await this.userRepository.update({ id: user.id }, { organizationName: trimmed });
+
+    return this.userRepository.findOne({ where: { id: user.id } });
   }
 }

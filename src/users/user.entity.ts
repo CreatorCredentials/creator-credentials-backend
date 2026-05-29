@@ -152,6 +152,9 @@ export class User extends BaseEntity {
   @Column({ name: 'active_signing_cert_source', nullable: false, default: 'platform' })
   activeSigningCertSource: string;
 
+  @Column({ name: 'organization_name', nullable: true, default: null })
+  organizationName: string | null;
+
   @OneToMany(() => CertChallenge, (cc) => cc.user)
   certChallenges: CertChallenge[];
 

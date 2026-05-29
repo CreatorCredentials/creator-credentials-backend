@@ -50,7 +50,7 @@ export class KeypairChallengeService {
     };
   }
 
-  async initiate(user: User) {
+  async initiate(user: User, keyFilePrefix?: string) {
     // Wipe both in-progress AND any previously verified-but-unconsumed
     // challenges so that every credential request starts a brand new
     // challenge from scratch. A keypair proof is single-use.
@@ -58,6 +58,8 @@ export class KeypairChallengeService {
       userId: user.id,
       status: In([...IN_PROGRESS_STATUSES, 'verified']),
     });
+
+    const prefix = this.sanitizeKeyFilePrefix(keyFilePrefix);
 
     const challenge = this.keypairChallengeRepository.create({
       userId: user.id,
@@ -67,7 +69,7 @@ export class KeypairChallengeService {
     const saved = await this.keypairChallengeRepository.save(challenge);
     return {
       challenge: saved,
-      commands: this.getGenerationCommands(),
+      commands: this.getGenerationCommands(prefix),
     };
   }
 
@@ -230,17 +232,38 @@ export class KeypairChallengeService {
     return this.userRepository.findOne({ where: { id: user.id } });
   }
 
-  private getGenerationCommands(): string[] {
+  private sanitizeKeyFilePrefix(prefix?: string): string {
+    if (!prefix) return '';
+    return prefix
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+  }
+
+  private buildKeyFileNames(prefix?: string): {
+    privateKey: string;
+    publicKey: string;
+  } {
+    const base = prefix ? `${prefix}_` : 'cc_';
+    return {
+      privateKey: `${base}private_key.pem`,
+      publicKey: `${base}public_key.pem`,
+    };
+  }
+
+  private getGenerationCommands(prefix?: string): string[] {
+    const { privateKey, publicKey } = this.buildKeyFileNames(prefix);
     return [
-      'openssl ecparam -name prime256v1 -genkey -noout -out cc_private_key.pem',
-      'openssl ec -in cc_private_key.pem -pubout -out cc_public_key.pem',
-      'cat cc_public_key.pem | pbcopy',
+      `openssl ecparam -name prime256v1 -genkey -noout -out ${privateKey}`,
+      `openssl ec -in ${privateKey} -pubout -out ${publicKey}`,
+      `cat ${publicKey} | pbcopy`,
     ];
   }
 
-  private getSigningCommands(challengeMessage: string): string[] {
+  private getSigningCommands(challengeMessage: string, prefix?: string): string[] {
+    const { privateKey } = this.buildKeyFileNames(prefix);
     return [
-      `SIG=$(echo -n "${challengeMessage}" | openssl dgst -sha256 -sign cc_private_key.pem | base64) && echo "$SIG" && echo "$SIG" | pbcopy`,
+      `SIG=$(echo -n "${challengeMessage}" | openssl dgst -sha256 -sign ${privateKey} | base64) && echo "$SIG" && echo "$SIG" | pbcopy`,
     ];
   }
 

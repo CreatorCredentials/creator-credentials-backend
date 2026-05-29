@@ -47,8 +47,11 @@ export class KeypairChallengeController {
 
   @UseGuards(AuthGuard)
   @Post('initiate')
-  initiate(@GetUser() user: User) {
-    return this.keypairChallengeService.initiate(user);
+  initiate(
+    @GetUser() user: User,
+    @Body('keyFilePrefix') keyFilePrefix?: string,
+  ) {
+    return this.keypairChallengeService.initiate(user, keyFilePrefix);
   }
 
   @UseGuards(AuthGuard)

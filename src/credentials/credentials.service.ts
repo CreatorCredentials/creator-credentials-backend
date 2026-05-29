@@ -15,6 +15,7 @@ import { CreateMemberCredentialDto } from './dto/create-member-credential.dto';
 import {
   generateConnectCredentialObjectAndJWS,
   generateDataSupplierCredentialObjectAndJWS,
+  generateLicciumDataSupplierCredentialObjectAndJWS,
   generateDomainCredentialObjectAndJWS,
   generateEmailCredentialObjectAndJWS,
   generateExternalKeypairVerificationCredentialObjectAndJWS,
@@ -743,6 +744,7 @@ export class CredentialsService {
       pending.user,
       issuer,
       subjectDidKey,
+      pending.user.organizationName,
     );
 
     const signingInput = this.buildSigningInput(credentialObject, issuer.externalCertPem);
@@ -809,6 +811,161 @@ export class CredentialsService {
     delete credentialObject.__acceptanceChallenge;
 
     return { credentialObject, proof: { type: 'JwtProof2020', jwt: found.token } };
+  }
+
+  // ─── Liccium Data Supplier Credential flow ───────────────────────────────────
+
+  async createPendingLicciumDataSupplierCredential(
+    createMemberCredentialDto: CreateMemberCredentialDto,
+    user: User,
+    issuerId: number,
+    keypairSnapshot: { derivedDidKey: string; publicKeyPem: string },
+  ): Promise<Credential> {
+    const existing = await this.credentialsRepository.findOne({
+      where: {
+        credentialType: CredentialType.LicciumDataSupplier,
+        issuerId,
+        userId: user.id,
+        credentialStatus: CredentialVerificationStatus.Pending,
+      },
+    });
+
+    if (existing) {
+      throw new ConflictException(
+        'A pending Liccium Data Supplier credential request already exists for this issuer. Wait for it to be approved or rejected before submitting a new one.',
+      );
+    }
+
+    const credential = this.credentialsRepository.create({
+      email: createMemberCredentialDto.value,
+      value: createMemberCredentialDto.value,
+      issuerId,
+      credentialType: CredentialType.LicciumDataSupplier,
+      credentialStatus: CredentialVerificationStatus.Pending,
+      credentialObject: {
+        __keypairSnapshot: {
+          derivedDidKey: keypairSnapshot.derivedDidKey,
+          publicKeyPem: keypairSnapshot.publicKeyPem,
+          capturedAt: new Date().toISOString(),
+        },
+      },
+      token: '',
+      user,
+    });
+
+    const savedCredential = await this.credentialsRepository.save(credential, { reload: true });
+
+    const emailCredential = await this.credentialsRepository.findOne({
+      where: {
+        userId: user.id,
+        credentialType: CredentialType.EMail,
+        credentialStatus: CredentialVerificationStatus.Success,
+      },
+      order: { createdAt: 'DESC' },
+    });
+    const userEmail = emailCredential?.email ?? '';
+
+    const { credentialObject: ekvcObject, jws: ekvcJws } =
+      await generateExternalKeypairVerificationCredentialObjectAndJWS(
+        user,
+        keypairSnapshot.derivedDidKey,
+        userEmail,
+      );
+    const ekvcCredential = this.credentialsRepository.create({
+      email: keypairSnapshot.derivedDidKey,
+      value: keypairSnapshot.derivedDidKey,
+      credentialType: CredentialType.ExternalKeypairVerification,
+      credentialStatus: CredentialVerificationStatus.Success,
+      credentialObject: ekvcObject,
+      token: ekvcJws,
+      user,
+    });
+    await this.credentialsRepository.save(ekvcCredential);
+
+    return savedCredential;
+  }
+
+  async initiateLicciumDataSupplierCredentialAcceptance(
+    issuer: User,
+    credentialId: number,
+  ) {
+    if (!issuer.externalCertPem) {
+      throw new ConflictException(
+        'Issuer must complete certificate challenge before accepting Liccium Data Supplier credentials.',
+      );
+    }
+
+    const pending = await this.credentialsRepository.findOne({
+      where: {
+        credentialType: CredentialType.LicciumDataSupplier,
+        issuerId: issuer.id,
+        id: credentialId,
+        credentialStatus: CredentialVerificationStatus.Pending,
+      },
+      relations: ['user'],
+    });
+
+    if (!pending) {
+      throw new ConflictException(
+        'Pending Liccium Data Supplier credential not found for this issuer.',
+      );
+    }
+
+    const subjectDidKey = this.extractKeypairSnapshotDidKey(pending);
+
+    const { credentialObject } = await generateLicciumDataSupplierCredentialObjectAndJWS(
+      {
+        value: pending.value,
+        did: subjectDidKey ?? pending.user.didKey,
+      },
+      pending.user,
+      issuer,
+      subjectDidKey,
+    );
+
+    const signingInput = this.buildSigningInput(credentialObject, issuer.externalCertPem);
+    const challenge = { signingInput, credentialObject, initiatedAt: new Date().toISOString() };
+
+    pending.credentialObject = { ...(pending.credentialObject || {}), __acceptanceChallenge: challenge };
+    await this.credentialsRepository.save(pending, { reload: true });
+
+    const supportingCredential = await this.findDataSupplierSupportingCredential(pending.userId);
+
+    return {
+      challenge,
+      commands: [
+        `SIG=$(printf %s "${signingInput}" | openssl dgst -sha256 -sign your_private_key.pem -binary | openssl base64 -A | tr -d '\n') && echo "Signature length: ${"${#SIG}"}" && echo "$SIG" && echo "$SIG" | pbcopy`,
+      ],
+      supportingCredential,
+    };
+  }
+
+  async verifyLicciumDataSupplierCredentialAcceptance(
+    issuer: User,
+    credentialId: number,
+    signatureBase64: string,
+  ): Promise<Credential> {
+    if (!issuer.externalCertPem) {
+      throw new ConflictException(
+        'Issuer must complete certificate challenge before accepting Liccium Data Supplier credentials.',
+      );
+    }
+
+    const pending = await this.credentialsRepository.findOne({
+      where: {
+        credentialType: CredentialType.LicciumDataSupplier,
+        issuerId: issuer.id,
+        id: credentialId,
+        credentialStatus: CredentialVerificationStatus.Pending,
+      },
+      relations: ['user'],
+    });
+
+    if (!pending) {
+      throw new ConflictException('Pending Liccium Data Supplier credential not found.');
+    }
+
+    return this.executeSignatureVerification(pending, issuer, signatureBase64);
   }
 
   // ─── Shared accept/verify utility ────────────────────────────────────────────

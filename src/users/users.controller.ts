@@ -11,6 +11,7 @@ import {
   UnauthorizedException,
   Query,
   ParseIntPipe,
+  BadRequestException,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { GetClerkUserAuth } from './get-clerk-auth.decorator';
@@ -262,5 +263,18 @@ export class UsersController {
   @Post('did-web/disconnect')
   async disconnectDidWebFromUser(@GetUser() user: User) {
     return this.usersService.disconnectDidWeb(user.clerkId);
+  }
+
+  @UseGuards(AuthGuard)
+  @Post('organization-name')
+  @HttpCode(HttpStatus.OK)
+  async setOrganizationName(
+    @GetUser() user: User,
+    @Body('organizationName') organizationName: string,
+  ) {
+    if (!organizationName) {
+      throw new BadRequestException('organizationName is required.');
+    }
+    return this.usersService.setOrganizationName(user, organizationName);
   }
 }

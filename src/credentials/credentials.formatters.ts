@@ -1,6 +1,7 @@
 import {
   ConnectCredential,
   DataSupplierCredential,
+  LicciumDataSupplierCredential,
   DidWebCredential,
   DomainCredential,
   EmailCredential,
@@ -30,6 +31,8 @@ export function formatCredentialForUnion(
       return formatMemberCredential(credential);
     case CredentialType.DataSupplier:
       return formatDataSupplierCredential(credential);
+    case CredentialType.LicciumDataSupplier:
+      return formatLicciumDataSupplierCredential(credential);
     case CredentialType.Connect:
       return formatConnectCredential(credential);
     case CredentialType.ExternalKeypairVerification:
@@ -161,6 +164,29 @@ export function formatDataSupplierCredential(
     id: credential.id.toString(),
     status: credential.credentialStatus,
     type: CredentialType.DataSupplier,
+    data: {
+      validity: credential.value || 'wrong',
+      companyName: credential?.issuer?.name || DEFAUTL_COMPANY_NAME,
+      requirements: 'Info about requirements',
+      userId: credential.userId,
+      credentialObject: {
+        proof: {
+          type: 'JwtProof2020',
+          jwt: credential.token,
+        },
+        ...credential.credentialObject,
+      },
+    },
+  };
+}
+
+export function formatLicciumDataSupplierCredential(
+  credential: Credential,
+): LicciumDataSupplierCredential {
+  return {
+    id: credential.id.toString(),
+    status: credential.credentialStatus,
+    type: CredentialType.LicciumDataSupplier,
     data: {
       validity: credential.value || 'wrong',
       companyName: credential?.issuer?.name || DEFAUTL_COMPANY_NAME,

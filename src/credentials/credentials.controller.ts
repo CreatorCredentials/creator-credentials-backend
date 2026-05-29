@@ -124,6 +124,7 @@ export class CredentialsController {
       domainCredential,
       memberShipCredentials,
       dataSupplierCredentials,
+      licciumDataSupplierCredentials,
       connectCredential,
       keypairVerificationCredentials,
     ] = await Promise.all([
@@ -149,6 +150,10 @@ export class CredentialsController {
       ),
       this.credentialsService.getCredentialsOfUserByType(
         user,
+        CredentialType.LicciumDataSupplier,
+      ),
+      this.credentialsService.getCredentialsOfUserByType(
+        user,
         CredentialType.Connect,
       ),
       this.credentialsService.getCredentialsOfUserByType(
@@ -166,6 +171,7 @@ export class CredentialsController {
       membership: [
         ...memberShipCredentials,
         ...dataSupplierCredentials,
+        ...licciumDataSupplierCredentials,
       ].map(formatCredentialForUnion),
       connect:
         connectCredential[0] && formatCredentialForUnion(connectCredential[0]),
@@ -188,10 +194,11 @@ export class CredentialsController {
 
     if (
       credentialType !== CredentialType.Member &&
-      credentialType !== CredentialType.DataSupplier
+      credentialType !== CredentialType.DataSupplier &&
+      credentialType !== CredentialType.LicciumDataSupplier
     ) {
       throw new BadRequestException(
-        `credentialType must be ${CredentialType.Member} or ${CredentialType.DataSupplier}.`,
+        `credentialType must be ${CredentialType.Member}, ${CredentialType.DataSupplier}, or ${CredentialType.LicciumDataSupplier}.`,
       );
     }
 
@@ -220,6 +227,12 @@ export class CredentialsController {
       issuer.domain || issuer.didWeb || `issuer-${issuer.id}.cert-verified`;
 
     if (credentialType === CredentialType.DataSupplier) {
+      if (!user.organizationName) {
+        throw new BadRequestException(
+          'Open Future Data Supplier credentials require an organization name to be set on your profile. Please set it before requesting.',
+        );
+      }
+
       const keypairSnapshot =
         await this.keypairChallengeService.consumeLatestVerified(user);
 
@@ -230,6 +243,22 @@ export class CredentialsController {
       }
 
       return this.credentialsService.createPendingDataSupplierCredential(
+        { value: issuerValue, did: keypairSnapshot.derivedDidKey },
+        user,
+        issuerId,
+        keypairSnapshot,
+      );
+    } else if (credentialType === CredentialType.LicciumDataSupplier) {
+      const keypairSnapshot =
+        await this.keypairChallengeService.consumeLatestVerified(user);
+
+      if (!keypairSnapshot) {
+        throw new BadRequestException(
+          'Liccium Data Supplier credentials require a completed keypair challenge. Please complete the challenge before requesting.',
+        );
+      }
+
+      return this.credentialsService.createPendingLicciumDataSupplierCredential(
         { value: issuerValue, did: keypairSnapshot.derivedDidKey },
         user,
         issuerId,
@@ -360,6 +389,7 @@ export class CredentialsController {
       domainCredential,
       memberShipCredentials,
       dataSupplierCredentials,
+      licciumDataSupplierCredentials,
       connectCredential,
     ] = await Promise.all([
       this.credentialsService.getCredentialsOfUserByType(
@@ -381,6 +411,10 @@ export class CredentialsController {
       this.credentialsService.getCredentialsOfUserByType(
         user,
         CredentialType.DataSupplier,
+      ),
+      this.credentialsService.getCredentialsOfUserByType(
+        user,
+        CredentialType.LicciumDataSupplier,
       ),
       this.credentialsService.getCredentialsOfUserByType(
         user,
@@ -407,7 +441,11 @@ export class CredentialsController {
           CredentialVerificationStatus.Success
           ? formatCredentialForUnion(domainCredential[0])
           : undefined,
-      membership: [...memberShipCredentials, ...dataSupplierCredentials]
+      membership: [
+        ...memberShipCredentials,
+        ...dataSupplierCredentials,
+        ...licciumDataSupplierCredentials,
+      ]
         .filter(
           (c) => c.credentialStatus === CredentialVerificationStatus.Success,
         )
@@ -440,6 +478,8 @@ export class CredentialsController {
 
     if (credentialType === CredentialType.DataSupplier) {
       return this.credentialsService.initiateDataSupplierCredentialAcceptance(user, credentialId);
+    } else if (credentialType === CredentialType.LicciumDataSupplier) {
+      return this.credentialsService.initiateLicciumDataSupplierCredentialAcceptance(user, credentialId);
     } else if (credentialType === CredentialType.Member) {
       return this.credentialsService.initiateMembershipCredentialAcceptance(user, credentialId);
     } else {
@@ -465,6 +505,8 @@ export class CredentialsController {
 
     if (credentialType === CredentialType.DataSupplier) {
       return this.credentialsService.verifyDataSupplierCredentialAcceptance(user, credentialId, signature);
+    } else if (credentialType === CredentialType.LicciumDataSupplier) {
+      return this.credentialsService.verifyLicciumDataSupplierCredentialAcceptance(user, credentialId, signature);
     } else if (credentialType === CredentialType.Member) {
       return this.credentialsService.verifyMembershipCredentialAcceptance(user, credentialId, signature);
     } else {

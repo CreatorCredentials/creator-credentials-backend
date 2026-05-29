@@ -11,6 +11,7 @@ import { CreatorVerificationStatus } from 'src/shared/typings/CreatorVerificatio
 export function mapIssuerConnectionToCreator(
   connection: Connection,
   user: User,
+  clerkImageUrl = '',
 ): Creator {
   const creds = user.credentials;
   let email: string = '';
@@ -39,7 +40,7 @@ export function mapIssuerConnectionToCreator(
 
   return {
     id: connection?.creatorId.toString(),
-    imageUrl: '/images/mock-creator-image.png',
+    imageUrl: clerkImageUrl,
     title: email, // TO DO change this to kind of title of creator(user)
     credentials: {
       email,

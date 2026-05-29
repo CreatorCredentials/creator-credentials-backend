@@ -95,6 +95,63 @@ export async function generateDataSupplierCredentialObjectAndJWS(
   creator: User,
   issuer: User,
   subjectDidKeyOverride?: string,
+  organizationName?: string | null,
+) {
+  const now = new Date();
+  const end = new Date();
+  end.setFullYear(end.getFullYear() + 3);
+
+  const subjectDidKey = subjectDidKeyOverride ?? resolveDidKey(creator);
+  const issuerDid = resolveIssuerDid(issuer);
+
+  const dataSupplierFor =
+    issuerDid.includes(OPENFUTURE_ISSUER_DID)
+      ? OPENFUTURE_DATA_SUPPLIER_FOR
+      : createMemberCredentialDto.value;
+
+  const credentialObject = {
+    '@context': ['https://www.w3.org/ns/credentials/v2'],
+    id: `urn:uuid:${uuidv4()}`,
+    type: [
+      'VerifiableCredential',
+      'VerifiableAttestation',
+      'VerifiableDataSupplier',
+    ],
+    issuer: issuerDid,
+    validFrom: now.toISOString(),
+    validUntil: end.toISOString(),
+    credentialSubject: {
+      id: subjectDidKey,
+      dataSupplierFor,
+      ...(organizationName ? { sameAs: organizationName } : {}),
+    },
+    credentialSchema: [
+      {
+        id: 'https://github.com/CreatorCredentials/specifications/blob/main/json-schema/verification-credentials/data-supplier-cert-signed/schema.json',
+        type: 'JsonSchema',
+      },
+    ],
+    termsOfUse: {
+      type: 'PresentationPolicy',
+      confidentialityLevel: 'public',
+      pii: 'none',
+    },
+  };
+
+  const issuerCertPem =
+    issuer.activeSigningCertSource === 'external' && issuer.externalCertPem
+      ? issuer.externalCertPem
+      : undefined;
+  const jws = await signJWTWithX5c(credentialObject, issuerCertPem);
+
+  return { credentialObject, jws };
+}
+
+export async function generateLicciumDataSupplierCredentialObjectAndJWS(
+  createMemberCredentialDto: CreateMemberCredentialDto,
+  creator: User,
+  issuer: User,
+  subjectDidKeyOverride?: string,
 ) {
   const now = new Date();
   const end = new Date();

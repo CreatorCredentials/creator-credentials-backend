@@ -13,6 +13,7 @@ const CREDENTIAL_TYPE_TO_TEMPLATE_TYPE: Partial<
 > = {
   [CredentialType.Member]: CredentialTemplateType.Member,
   [CredentialType.DataSupplier]: CredentialTemplateType.ExternalKeypair,
+  [CredentialType.LicciumDataSupplier]: CredentialTemplateType.LicciumExternalKeypair,
   [CredentialType.Student]: CredentialTemplateType.Student,
 };
 
@@ -39,10 +40,12 @@ export class TemplatesController {
 
     for (const issuer of issuers) {
       for (const credentialType of issuer.credentialsToIssue) {
-        // DataSupplier requires the issuer to have an X.509 certificate.
-        // Skip it when the cert is absent so the template is never offered.
+        // DataSupplier and LicciumDataSupplier require the issuer to have an
+        // X.509 certificate. Skip them when the cert is absent so the template
+        // is never offered.
         if (
-          credentialType === CredentialType.DataSupplier &&
+          (credentialType === CredentialType.DataSupplier ||
+            credentialType === CredentialType.LicciumDataSupplier) &&
           !issuer.externalCertPem
         ) {
           continue;

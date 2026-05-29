@@ -68,6 +68,18 @@ export type DataSupplierCredential = BaseCredential<
   }
 >;
 
+export type LicciumDataSupplierCredential = BaseCredential<
+  CredentialType.LicciumDataSupplier,
+  {
+    companyName?: string;
+    requirements?: string;
+    validity?: string;
+    userId?: number;
+    // eslint-disable-next-line
+    credentialObject?: any;
+  }
+>;
+
 export type ConnectCredential = BaseCredential<
   CredentialType.Connect,
   {
@@ -109,6 +121,7 @@ export type VerifiedCredentialsUnion =
   | DomainCredential
   | MembershipCredential
   | DataSupplierCredential
+  | LicciumDataSupplierCredential
   | ConnectCredential
   | DidWebCredential
   | ExternalKeypairVerificationCredential;
