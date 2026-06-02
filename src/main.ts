@@ -6,6 +6,7 @@ import getLogLevels from './config/log-levels';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
+    rawBody: true,
     logger: getLogLevels(process.env.NODE_ENV === 'production'),
   });
 
