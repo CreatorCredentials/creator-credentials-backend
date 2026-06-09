@@ -1,5 +1,6 @@
 import * as jose from 'jose';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { CreateMemberCredentialDto } from './dto/create-member-credential.dto';
 import { User } from 'src/users/user.entity';
@@ -33,6 +34,28 @@ export function resolveMemberOf(issuer: User): string {
 export function resolveIssuerDid(issuer: User): string {
   if (issuer.didWeb) return issuer.didWeb;
   if (issuer.domain) return `did:web:${issuer.domain}`;
+  return `did:web:${credentialsHost}`;
+}
+
+/**
+ * Derives the issuer DID strictly from the CN/SAN of the issuer's X.509
+ * certificate. This is the authoritative source for DataSupplier and
+ * LicciumDataSupplier credentials, where the issuer field must reflect the
+ * domain bound to the cert — not any user-supplied profile field.
+ */
+export function resolveIssuerDidFromCert(certPem: string): string {
+  const cert = new crypto.X509Certificate(certPem);
+
+  const san = cert.subjectAltName;
+  if (san) {
+    const dnsMatch = san.match(/DNS:([^,\s]+)/);
+    if (dnsMatch) return `did:web:${dnsMatch[1]}`;
+  }
+
+  const subject = cert.subject;
+  const cnMatch = subject.match(/CN=([^,\n]+)/);
+  if (cnMatch) return `did:web:${cnMatch[1].trim()}`;
+
   return `did:web:${credentialsHost}`;
 }
 
@@ -102,7 +125,14 @@ export async function generateDataSupplierCredentialObjectAndJWS(
   end.setFullYear(end.getFullYear() + 3);
 
   const subjectDidKey = subjectDidKeyOverride ?? resolveDidKey(creator);
-  const issuerDid = resolveIssuerDid(issuer);
+
+  const issuerCertPem =
+    issuer.activeSigningCertSource === 'external' && issuer.externalCertPem
+      ? issuer.externalCertPem
+      : undefined;
+  const issuerDid = issuerCertPem
+    ? resolveIssuerDidFromCert(issuerCertPem)
+    : resolveIssuerDid(issuer);
 
   const dataSupplierFor =
     issuerDid.includes(OPENFUTURE_ISSUER_DID)
@@ -138,10 +168,6 @@ export async function generateDataSupplierCredentialObjectAndJWS(
     },
   };
 
-  const issuerCertPem =
-    issuer.activeSigningCertSource === 'external' && issuer.externalCertPem
-      ? issuer.externalCertPem
-      : undefined;
   const jws = await signJWTWithX5c(credentialObject, issuerCertPem);
 
   return { credentialObject, jws };
@@ -158,7 +184,14 @@ export async function generateLicciumDataSupplierCredentialObjectAndJWS(
   end.setFullYear(end.getFullYear() + 3);
 
   const subjectDidKey = subjectDidKeyOverride ?? resolveDidKey(creator);
-  const issuerDid = resolveIssuerDid(issuer);
+
+  const issuerCertPem =
+    issuer.activeSigningCertSource === 'external' && issuer.externalCertPem
+      ? issuer.externalCertPem
+      : undefined;
+  const issuerDid = issuerCertPem
+    ? resolveIssuerDidFromCert(issuerCertPem)
+    : resolveIssuerDid(issuer);
 
   const dataSupplierFor =
     issuerDid.includes(OPENFUTURE_ISSUER_DID)
@@ -193,10 +226,6 @@ export async function generateLicciumDataSupplierCredentialObjectAndJWS(
     },
   };
 
-  const issuerCertPem =
-    issuer.activeSigningCertSource === 'external' && issuer.externalCertPem
-      ? issuer.externalCertPem
-      : undefined;
   const jws = await signJWTWithX5c(credentialObject, issuerCertPem);
 
   return { credentialObject, jws };
@@ -206,6 +235,7 @@ export async function generateExternalKeypairVerificationCredentialObjectAndJWS(
   user: User,
   derivedDidKey: string,
   email: string,
+  organizationName?: string | null,
 ) {
   const now = new Date();
   const end = new Date();
@@ -225,6 +255,7 @@ export async function generateExternalKeypairVerificationCredentialObjectAndJWS(
     credentialSubject: {
       email,
       sameAs: derivedDidKey,
+      ...(organizationName ? { organizationName } : {}),
     },
     credentialSchema: [
       {

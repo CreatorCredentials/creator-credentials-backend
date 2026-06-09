@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Param,
   UseGuards,
   Body,
@@ -69,6 +70,17 @@ export class UsersController {
       domain: user.domain ?? '',
       email: '',
     };
+  }
+
+  @UseGuards(AuthGuard)
+  @Patch('profile')
+  @HttpCode(HttpStatus.OK)
+  async updateProfile(
+    @GetUser() user: User,
+    @Body('description') description?: string,
+    @Body('domain') domain?: string,
+  ) {
+    return this.usersService.updateUserProfile(user, { description, domain });
   }
 
   @UseGuards(AuthGuard)

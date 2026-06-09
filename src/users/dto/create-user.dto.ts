@@ -6,4 +6,5 @@ export class CreateUserDto {
   email: string;
   name?: string;
   description?: string;
+  termsLink?: string;
 }

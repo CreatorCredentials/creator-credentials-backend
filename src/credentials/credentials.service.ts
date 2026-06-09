@@ -693,6 +693,7 @@ export class CredentialsService {
         user,
         keypairSnapshot.derivedDidKey,
         userEmail,
+        user.organizationName,
       );
     const ekvcCredential = this.credentialsRepository.create({
       email: keypairSnapshot.derivedDidKey,
