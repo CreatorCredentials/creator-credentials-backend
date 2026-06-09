@@ -142,6 +142,7 @@ export class UsersService {
     if (createUserDto.description?.trim()) {
       newUser.description = createUserDto.description.trim();
     }
+    newUser.termsLink = createUserDto.termsLink ?? null;
     newUser.nonce = this.generateNonce();
 
     const result = await this.generateCertAndDidKey(newUser, createUserDto.email);
@@ -768,6 +769,47 @@ export class UsersService {
       },
     });
     await this.connectionsService.revokeConnection([creator, user]);
+  }
+
+  async updateUserProfile(
+    user: User,
+    payload: { description?: string; domain?: string },
+  ): Promise<{ companyName: string; description: string; domain: string; email: string }> {
+    const updateData: Partial<User> = {};
+
+    if (payload.description !== undefined) {
+      updateData.description = payload.description.trim();
+    }
+
+    if (payload.domain !== undefined) {
+      const trimmedDomain = payload.domain.trim();
+      updateData.domain = trimmedDomain || null;
+      if (trimmedDomain !== (user.domain ?? '')) {
+        updateData.domainPendingVerifcation = false;
+      }
+    }
+
+    if (Object.keys(updateData).length > 0) {
+      try {
+        await this.userRepository.update({ id: user.id }, updateData);
+      } catch (err: any) {
+        if (err?.code === '23505') {
+          throw new HttpException(
+            'This domain is already in use by another account.',
+            HttpStatus.CONFLICT,
+          );
+        }
+        throw err;
+      }
+    }
+
+    const updated = await this.userRepository.findOne({ where: { id: user.id } });
+    return {
+      companyName: updated.name,
+      description: updated.description,
+      domain: updated.domain ?? '',
+      email: '',
+    };
   }
 
   async setOrganizationName(user: User, organizationName: string): Promise<User> {

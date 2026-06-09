@@ -155,6 +155,9 @@ export class User extends BaseEntity {
   @Column({ name: 'organization_name', nullable: true, default: null })
   organizationName: string | null;
 
+  @Column({ name: 'terms_link', nullable: true, default: null })
+  termsLink: string | null;
+
   @OneToMany(() => CertChallenge, (cc) => cc.user)
   certChallenges: CertChallenge[];
 

@@ -17,11 +17,15 @@ interface ClerkUserEventData {
     role?: string;
     description?: string;
     name?: string;
+    termsAreAccepted?: boolean;
+    termsLink?: string;
   };
   unsafe_metadata?: {
     role?: string;
     description?: string;
     name?: string;
+    termsAreAccepted?: boolean;
+    termsLink?: string;
   };
 }
 
@@ -53,8 +57,20 @@ export class WebhooksService {
     const description = this.resolveDescriptionMetadata(data);
     const name = this.resolveNameMetadata(data);
     const email = this.primaryEmail(data);
-    this.logger.log(`user.created: clerkId=${clerkId} role=${clerkRole} email=${email} name=${name}`);
-    await this.usersService.create({ clerkId, clerkRole, email, name, description });
+    const { termsAreAccepted, termsLink } = this.resolveTermsMetadata(data);
+
+    this.logger.log(
+      `user.created: clerkId=${clerkId} role=${clerkRole} email=${email} name=${name} termsAreAccepted=${termsAreAccepted}`,
+    );
+
+    if (!termsAreAccepted || !termsLink) {
+      this.logger.warn(
+        `user.created: skipping DB creation for clerkId=${clerkId} — termsAreAccepted or termsLink not present in Clerk metadata. User will be created on user.updated once terms are set.`,
+      );
+      return;
+    }
+
+    await this.usersService.create({ clerkId, clerkRole, email, name, description, termsLink });
   }
 
   private async handleUserUpdated(data: ClerkUserEventData) {
@@ -62,11 +78,19 @@ export class WebhooksService {
     const newRole = this.resolveRole(this.resolveRoleMetadata(data));
     const description = this.resolveDescriptionMetadata(data);
     const name = this.resolveNameMetadata(data);
-    this.logger.log(`user.updated: clerkId=${clerkId} role=${newRole} name=${name}`);
+    const { termsAreAccepted, termsLink } = this.resolveTermsMetadata(data);
+    this.logger.log(`user.updated: clerkId=${clerkId} role=${newRole} name=${name} termsAreAccepted=${termsAreAccepted}`);
 
     const existing = await this.usersService.getByClerkId(clerkId);
     if (!existing) {
-      // Webhook ordering edge-case: user.updated arrived before user.created
+      if (!termsAreAccepted || !termsLink) {
+        this.logger.warn(
+          `user.updated: skipping DB creation for clerkId=${clerkId} — termsAreAccepted or termsLink not present.`,
+        );
+        return;
+      }
+      // Webhook ordering edge-case: user.updated arrived before user.created,
+      // or user.created was skipped due to missing terms and terms have now been set.
       const email = this.primaryEmail(data);
       await this.usersService.create({
         clerkId,
@@ -74,6 +98,7 @@ export class WebhooksService {
         email,
         name,
         description,
+        termsLink,
       });
     } else if (
       existing.clerkRole !== newRole ||
@@ -126,5 +151,18 @@ export class WebhooksService {
       .join(' ')
       .trim();
     return fromFirstName || undefined;
+  }
+
+  private resolveTermsMetadata(data: ClerkUserEventData): {
+    termsAreAccepted: boolean;
+    termsLink: string | undefined;
+  } {
+    const termsAreAccepted =
+      data.public_metadata?.termsAreAccepted ??
+      data.unsafe_metadata?.termsAreAccepted ??
+      false;
+    const termsLink =
+      data.public_metadata?.termsLink ?? data.unsafe_metadata?.termsLink;
+    return { termsAreAccepted: Boolean(termsAreAccepted), termsLink };
   }
 }
