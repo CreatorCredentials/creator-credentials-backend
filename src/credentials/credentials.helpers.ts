@@ -71,6 +71,14 @@ export async function generateMembershipCredentialObjectAndJWS(
 
   const subjectDidKey = subjectDidKeyOverride ?? resolveDidKey(creator);
 
+  const issuerCertPem =
+    issuer.activeSigningCertSource === 'external' && issuer.externalCertPem
+      ? issuer.externalCertPem
+      : undefined;
+  const issuerDid = issuerCertPem
+    ? resolveIssuerDidFromCert(issuerCertPem)
+    : resolveIssuerDid(issuer);
+
   const credentialObject = {
     '@context': ['https://www.w3.org/ns/credentials/v2'],
     id: `urn:uuid:${uuidv4()}`,
@@ -79,7 +87,7 @@ export async function generateMembershipCredentialObjectAndJWS(
       'VerifiableAttestation',
       'VerifiableMembership',
     ],
-    issuer: resolveIssuerDid(issuer),
+    issuer: issuerDid,
     validFrom: now.toISOString(),
     validUntil: end.toISOString(),
     credentialSubject: {
@@ -99,10 +107,6 @@ export async function generateMembershipCredentialObjectAndJWS(
     },
   };
 
-  const issuerCertPem =
-    issuer.activeSigningCertSource === 'external' && issuer.externalCertPem
-      ? issuer.externalCertPem
-      : undefined;
   const jws = await signJWTWithX5c(credentialObject, issuerCertPem);
 
   return { credentialObject, jws };
@@ -126,13 +130,11 @@ export async function generateDataSupplierCredentialObjectAndJWS(
 
   const subjectDidKey = subjectDidKeyOverride ?? resolveDidKey(creator);
 
-  const issuerCertPem =
-    issuer.activeSigningCertSource === 'external' && issuer.externalCertPem
-      ? issuer.externalCertPem
-      : undefined;
-  const issuerDid = issuerCertPem
-    ? resolveIssuerDidFromCert(issuerCertPem)
-    : resolveIssuerDid(issuer);
+  // The service guard already ensures externalCertPem exists before calling this
+  // function, so always derive issuerDid from the cert — not from the profile.
+  // activeSigningCertSource is intentionally not checked here: whatever it is set
+  // to, the cert IS the authoritative signer and the VC issuer must reflect it.
+  const issuerDid = resolveIssuerDidFromCert(issuer.externalCertPem);
 
   const dataSupplierFor =
     issuerDid.includes(OPENFUTURE_ISSUER_DID)
@@ -168,7 +170,7 @@ export async function generateDataSupplierCredentialObjectAndJWS(
     },
   };
 
-  const jws = await signJWTWithX5c(credentialObject, issuerCertPem);
+  const jws = await signJWTWithX5c(credentialObject, issuer.externalCertPem);
 
   return { credentialObject, jws };
 }
