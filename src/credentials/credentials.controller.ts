@@ -17,6 +17,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { CredentialsService } from './credentials.service';
+import { resolveIssuerDidFromCert } from './credentials.helpers';
 import { CreateEmailCredentialDto } from './dto/create-email-credential.dto';
 import { AuthGuard } from 'src/users/guards/clerk-user.guard';
 import { GetUser } from 'src/users/get-user.decorator';
@@ -223,8 +224,10 @@ export class CredentialsController {
       );
     }
 
-    const issuerValue =
-      issuer.domain || issuer.didWeb || `issuer-${issuer.id}.cert-verified`;
+    const issuerValue = issuer.externalCertPem
+      ? resolveIssuerDidFromCert(issuer.externalCertPem)
+      : issuer.didWeb ||
+        (issuer.domain ? `did:web:${issuer.domain}` : `issuer-${issuer.id}.cert-verified`);
 
     if (credentialType === CredentialType.DataSupplier) {
       if (!user.organizationName) {
