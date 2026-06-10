@@ -49,12 +49,18 @@ export function resolveIssuerDidFromCert(certPem: string): string {
   const san = cert.subjectAltName;
   if (san) {
     const dnsMatch = san.match(/DNS:([^,\s]+)/);
-    if (dnsMatch) return `did:web:${dnsMatch[1]}`;
+    if (dnsMatch) {
+      const val = dnsMatch[1];
+      return val.startsWith('did:web:') ? val : `did:web:${val}`;
+    }
   }
 
   const subject = cert.subject;
   const cnMatch = subject.match(/CN=([^,\n]+)/);
-  if (cnMatch) return `did:web:${cnMatch[1].trim()}`;
+  if (cnMatch) {
+    const val = cnMatch[1].trim();
+    return val.startsWith('did:web:') ? val : `did:web:${val}`;
+  }
 
   return `did:web:${credentialsHost}`;
 }
@@ -136,10 +142,9 @@ export async function generateDataSupplierCredentialObjectAndJWS(
   // to, the cert IS the authoritative signer and the VC issuer must reflect it.
   const issuerDid = resolveIssuerDidFromCert(issuer.externalCertPem);
 
-  const dataSupplierFor =
-    issuerDid.includes(OPENFUTURE_ISSUER_DID)
-      ? OPENFUTURE_DATA_SUPPLIER_FOR
-      : createMemberCredentialDto.value;
+  const dataSupplierFor = issuerDid.includes(OPENFUTURE_ISSUER_DID)
+    ? OPENFUTURE_DATA_SUPPLIER_FOR
+    : issuerDid;
 
   const credentialObject = {
     '@context': ['https://www.w3.org/ns/credentials/v2'],
