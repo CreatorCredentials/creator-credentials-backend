@@ -10,11 +10,10 @@ RUN apk upgrade --update-cache --available && \
     apk add openssl && \
     rm -rf /var/cache/apk/*
 RUN apk add --no-cache bash
-RUN npm install -g pnpm
+RUN npm install -g pnpm@10.18.2
 # Files required by pnpm install
 COPY package.json pnpm-lock.yaml ./
 
-RUN pnpm approve-builds @clerk/shared@2.22.1, @clerk/shared@3.47.5, @clerk/shared@4.8.3, @nestjs/core@10.3.9, keccak@3.0.4, postgresql@0.0.1, secp256k1@4.0.3
 RUN pnpm install 
 RUN mkdir -p node_modules/.cache && chmod -R 777 node_modules/.cache
 
