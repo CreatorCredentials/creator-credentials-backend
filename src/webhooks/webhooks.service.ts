@@ -1,6 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { UsersService } from '../users/users.service';
-import { ClerkRole, User } from '../users/user.entity';
+import { ClerkRole } from '../users/user.entity';
+import {
+  NotificationEvent,
+  UserCreatedEvent,
+} from '../notifications/notification-events';
 
 interface ClerkEmailAddress {
   email_address: string;
@@ -33,7 +38,10 @@ interface ClerkUserEventData {
 export class WebhooksService {
   private readonly logger = new Logger(WebhooksService.name);
 
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   async handleEvent(event: { type: string; data: ClerkUserEventData }) {
     switch (event.type) {
@@ -70,7 +78,25 @@ export class WebhooksService {
       return;
     }
 
-    await this.usersService.create({ clerkId, clerkRole, email, name, description, termsLink });
+    const { user, created } = await this.usersService.findOrCreate({
+      clerkId,
+      clerkRole,
+      email,
+      name,
+      description,
+      termsLink,
+    });
+    if (!created) {
+      return;
+    }
+
+    const payload: UserCreatedEvent = {
+      userId: user.id,
+      role: user.clerkRole,
+      name: user.name,
+      email,
+    };
+    this.eventEmitter.emit(NotificationEvent.UserCreated, payload);
   }
 
   private async handleUserUpdated(data: ClerkUserEventData) {
@@ -79,7 +105,9 @@ export class WebhooksService {
     const description = this.resolveDescriptionMetadata(data);
     const name = this.resolveNameMetadata(data);
     const { termsAreAccepted, termsLink } = this.resolveTermsMetadata(data);
-    this.logger.log(`user.updated: clerkId=${clerkId} role=${newRole} name=${name} termsAreAccepted=${termsAreAccepted}`);
+    this.logger.log(
+      `user.updated: clerkId=${clerkId} role=${newRole} name=${name} termsAreAccepted=${termsAreAccepted}`,
+    );
 
     const existing = await this.usersService.getByClerkId(clerkId);
     if (!existing) {
@@ -122,7 +150,9 @@ export class WebhooksService {
     const primary = data.email_addresses?.find(
       (e) => e.id === data.primary_email_address_id,
     );
-    return primary?.email_address ?? data.email_addresses?.[0]?.email_address ?? '';
+    return (
+      primary?.email_address ?? data.email_addresses?.[0]?.email_address ?? ''
+    );
   }
 
   private resolveRole(roleMetadata?: string): ClerkRole {
@@ -137,13 +167,14 @@ export class WebhooksService {
   private resolveDescriptionMetadata(
     data: ClerkUserEventData,
   ): string | undefined {
-    return data.public_metadata?.description ?? data.unsafe_metadata?.description;
+    return (
+      data.public_metadata?.description ?? data.unsafe_metadata?.description
+    );
   }
 
   private resolveNameMetadata(data: ClerkUserEventData): string | undefined {
     // Prefer explicit name from metadata, then fall back to Clerk's firstName
-    const metaName =
-      data.public_metadata?.name ?? data.unsafe_metadata?.name;
+    const metaName = data.public_metadata?.name ?? data.unsafe_metadata?.name;
     if (metaName?.trim()) return metaName.trim();
 
     const fromFirstName = [data.first_name, data.last_name]

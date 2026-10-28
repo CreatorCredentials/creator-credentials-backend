@@ -13,6 +13,7 @@ import { User } from 'src/users/user.entity';
 import { CredentialType } from 'src/shared/typings/CredentialType';
 import { CredentialVerificationStatus } from 'src/shared/typings/CredentialVerificationStatus';
 import { Template } from 'src/templates/template.entity';
+import { REVOKED_REASON_MAX_LENGTH } from './credentials.constants';
 
 @Entity()
 export class Credential extends BaseEntity {
@@ -77,6 +78,17 @@ export class Credential extends BaseEntity {
     default: CredentialVerificationStatus.Pending,
   })
   credentialStatus: CredentialVerificationStatus;
+
+  @Column({ name: 'revoked_at', type: 'timestamptz', nullable: true })
+  revokedAt?: Date;
+
+  @Column({
+    name: 'revoked_reason',
+    type: 'varchar',
+    length: REVOKED_REASON_MAX_LENGTH,
+    nullable: true,
+  })
+  revokedReason?: string;
 
   //TIMESTAMPS
 

@@ -23,10 +23,13 @@ import { TemplatesModule } from './templates/templates.module';
 import { KeypairChallengeModule } from './keypair-challenge/keypair-challenge.module';
 import { CertChallengeModule } from './cert-challenge/cert-challenge.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
     ScheduleModule.forRoot(),
+    EventEmitterModule.forRoot(),
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRoot({
       type: 'postgres',
@@ -37,6 +40,9 @@ import { WebhooksModule } from './webhooks/webhooks.module';
       database: process.env.DATABASE_NAME,
       synchronize: false,
       migrationsRun: true,
+      // Each migration commits on its own: an enum value added by one
+      // migration can then be used by the next (PostgreSQL rule).
+      migrationsTransactionMode: 'each',
       entities: [__dirname + '/../**/*.{entity,repository}.{js,ts}'],
     }),
     HealthModule,
@@ -48,6 +54,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     KeypairChallengeModule,
     CertChallengeModule,
     WebhooksModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -30,6 +30,7 @@
     "mig:down": "./scripts/migration_down.sh"
   },
   "dependencies": {
+    "@aws-sdk/client-sesv2": "^3.1158.0",
     "@clerk/backend": "3.3.0",
     "@clerk/clerk-sdk-node": "5.1.6",
     "@clerk/express": "2.1.7",
@@ -37,6 +38,7 @@
     "@nestjs/common": "10.3.9",
     "@nestjs/config": "3.2.2",
     "@nestjs/core": "10.3.9",
+    "@nestjs/event-emitter": "^2.1.1",
     "@nestjs/jwt": "10.2.0",
     "@nestjs/mapped-types": "2.0.5",
     "@nestjs/passport": "10.0.3",
@@ -116,6 +118,9 @@
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "moduleNameMapper": {
+      "^src/(.*)$": "<rootDir>/$1"
     },
     "collectCoverageFrom": [
       "**/*.(t|j)s"

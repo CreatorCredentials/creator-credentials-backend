@@ -16,4 +16,7 @@ export default new DataSource({
   database: configService.getOrThrow('DATABASE_NAME'),
   entities: ['dist/**/*.entity.js'],
   migrations: ['dist/**/migrations/*.js'],
+  // Each migration commits on its own: an enum value added by one migration
+  // can then be used by the next (PostgreSQL rule).
+  migrationsTransactionMode: 'each',
 });

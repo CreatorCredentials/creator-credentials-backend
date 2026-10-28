@@ -1,7 +1,17 @@
 import { CredentialType } from './CredentialType';
 import { CredentialVerificationStatus } from './CredentialVerificationStatus';
+import { ConnectionStatus } from 'src/connections/connection.entity';
 
-type BaseCredential<T extends CredentialType, D extends object> = {
+/** Present on revoked credentials only; `revokedReason` only when the issuer gave one. */
+export type RevocationFields = {
+  revokedAt?: Date;
+  revokedReason?: string;
+};
+
+type BaseCredential<
+  T extends CredentialType,
+  D extends object,
+> = RevocationFields & {
   id: string;
   status?: CredentialVerificationStatus;
   type: T;
@@ -115,6 +125,15 @@ export type ExternalKeypairVerificationCredential = BaseCredential<
   }
 >;
 
+export type CreatorCredential = BaseCredential<
+  CredentialType.Creator,
+  {
+    verifiedBy: string;
+    // eslint-disable-next-line
+    credentialObject?: any;
+  }
+>;
+
 export type VerifiedCredentialsUnion =
   | EmailCredential
   | WalletCredential
@@ -124,7 +143,8 @@ export type VerifiedCredentialsUnion =
   | LicciumDataSupplierCredential
   | ConnectCredential
   | DidWebCredential
-  | ExternalKeypairVerificationCredential;
+  | ExternalKeypairVerificationCredential
+  | CreatorCredential;
 
 export type CreatorCredentials = {
   email: EmailCredential;
@@ -139,4 +159,24 @@ export type IssuerCredentials = {
   domain: DomainCredential;
   didWeb: DidWebCredential;
   membership: MembershipCredential[];
+};
+
+export type IssuedCredentialCreator = {
+  id: number;
+  name: string | null;
+  email: string | null;
+  didKey: string;
+};
+
+/**
+ * Item of GET credentials/issuers: the union shape plus timestamps, the
+ * revocation fields and the creator identity the issued-credentials page renders.
+ */
+export type IssuedCredential = VerifiedCredentialsUnion & {
+  issuedAt: Date;
+  updatedAt: Date;
+  revokedAt: Date | null;
+  revokedReason: string | null;
+  connectionStatus: ConnectionStatus | null;
+  creator: IssuedCredentialCreator;
 };

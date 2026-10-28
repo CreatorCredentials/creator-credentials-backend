@@ -319,6 +319,54 @@ export async function generateEmailCredentialObjectAndJWS(
   return { credentialObject, jws };
 }
 
+/**
+ * Platform-issued attestation that the creator's Liccium account is linked.
+ * The subject carries no personal data, so the presentation policy is public.
+ */
+export function buildCreatorCredentialObject(user: User, verifiedBy: string) {
+  const now = new Date();
+  const end = new Date();
+  end.setFullYear(end.getFullYear() + 3);
+
+  return {
+    '@context': ['https://www.w3.org/ns/credentials/v2'],
+    id: `urn:uuid:${uuidv4()}`,
+    type: [
+      'VerifiableCredential',
+      'VerifiableAttestation',
+      'VerifiableCreator',
+    ],
+    issuer: `did:web:${credentialsHost}`,
+    validFrom: now.toISOString(),
+    validUntil: end.toISOString(),
+    credentialSubject: {
+      id: resolveDidKey(user),
+      verifiedBy,
+    },
+    credentialSchema: [
+      {
+        id: 'https://raw.githubusercontent.com/CreatorCredentials/specifications/main/json-schema/verification-credentials/creator/schema.json',
+        type: 'JsonSchema',
+      },
+    ],
+    termsOfUse: {
+      type: 'PresentationPolicy',
+      confidentialityLevel: 'public',
+      pii: 'none',
+    },
+  };
+}
+
+export async function generateCreatorCredentialObjectAndJWS(
+  user: User,
+  verifiedBy: string,
+) {
+  const credentialObject = buildCreatorCredentialObject(user, verifiedBy);
+  const jws = await signJWTWithX5c(credentialObject);
+
+  return { credentialObject, jws };
+}
+
 export async function generateDomainCredentialObjectAndJWS(
   createDomainCredentialDto: CreateDomainCredentialDto,
   user: User,

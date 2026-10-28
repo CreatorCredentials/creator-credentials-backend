@@ -1,6 +1,15 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ArrayContains, DeleteResult, Repository } from 'typeorm';
+import {
+  DeleteResult,
+  MoreThanOrEqual,
+  Repository,
+  SelectQueryBuilder,
+} from 'typeorm';
 import { CreateEmailCredentialDto } from './dto/create-email-credential.dto';
 import { Credential } from './credential.entity';
 import * as jose from 'jose';
@@ -14,6 +23,7 @@ import { CredentialVerificationStatus } from 'src/shared/typings/CredentialVerif
 import { CreateMemberCredentialDto } from './dto/create-member-credential.dto';
 import {
   generateConnectCredentialObjectAndJWS,
+  generateCreatorCredentialObjectAndJWS,
   generateDataSupplierCredentialObjectAndJWS,
   generateLicciumDataSupplierCredentialObjectAndJWS,
   generateDomainCredentialObjectAndJWS,
@@ -24,14 +34,30 @@ import {
 } from './credentials.helpers';
 import { CreateConnectCredentialDto } from './dto/create-connect-credential.dto';
 import * as crypto from 'crypto';
+import { normalizeEcdsaSignature } from './signature-encoding';
+import { stripTransientFields } from './credentials.formatters';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import {
+  CredentialRequestedEvent,
+  CredentialRevokedEvent,
+  NotificationEvent,
+} from 'src/notifications/notification-events';
 
 const credentialsHost = 'liccium.com';
+const POSTGRES_UNIQUE_VIOLATION = '23505';
+
+/** Request types created together with an EKVC row (see createPending*DataSupplierCredential). */
+const REQUEST_TYPES_WITH_KEYPAIR_VERIFICATION: CredentialType[] = [
+  CredentialType.DataSupplier,
+  CredentialType.LicciumDataSupplier,
+];
 
 @Injectable()
 export class CredentialsService {
   constructor(
     @InjectRepository(Credential)
     private credentialsRepository: Repository<Credential>,
+    private eventEmitter: EventEmitter2,
   ) {}
 
   async getById(id: number, clerkId: string): Promise<Credential> {
@@ -40,16 +66,38 @@ export class CredentialsService {
     });
   }
 
+  /**
+   * Credentials an issuer has issued (or that await it), with everything the
+   * issued-credential shape renders per creator. One query, no per-row lookups.
+   */
   async getAllIssuersMemberCredentialsWithCreators(
     issuerId: number,
     status: CredentialVerificationStatus = CredentialVerificationStatus.Success,
   ): Promise<Credential[]> {
-    const credentials = await this.credentialsRepository.find({
-      where: { issuerId, credentialStatus: status },
-      relations: ['user'],
-    });
+    return this.issuedCredentialQuery()
+      .where('credential.issuerId = :issuerId', { issuerId })
+      .andWhere('credential.credentialStatus = :status', { status })
+      .getMany();
+  }
 
-    return credentials;
+  /**
+   * Issued credentials with only what the issued shape renders per creator:
+   * the creator, their SUCCESS EMAIL credential and their connections.
+   */
+  private issuedCredentialQuery(): SelectQueryBuilder<Credential> {
+    return this.credentialsRepository
+      .createQueryBuilder('credential')
+      .leftJoinAndSelect('credential.user', 'creator')
+      .leftJoinAndSelect('creator.createdConnections', 'connection')
+      .leftJoinAndSelect(
+        'creator.credentials',
+        'email',
+        'email.credentialType = :emailType AND email.credentialStatus = :issued',
+        {
+          emailType: CredentialType.EMail,
+          issued: CredentialVerificationStatus.Success,
+        },
+      );
   }
 
   async getCredentialsOfUserByType(
@@ -111,12 +159,185 @@ export class CredentialsService {
     return this.credentialsRepository.delete({ id: credential?.id });
   }
 
-  async removeMemberCredential(credentialId: number): Promise<DeleteResult> {
-    return this.deleteCredential(credentialId);
+  /**
+   * Moves an issued (SUCCESS) credential of this issuer to REVOKED. The row
+   * is kept so the creator sees why the credential is gone. Repeating the
+   * call changes nothing; a PENDING request is rejected, not revoked.
+   */
+  async revokeIssuedCredential(
+    credentialId: number,
+    issuer: User,
+    reason?: string,
+  ): Promise<Credential> {
+    const credential = await this.loadOwnedCredential(credentialId, issuer.id);
+
+    switch (credential.credentialStatus) {
+      case CredentialVerificationStatus.Revoked:
+        return credential;
+      case CredentialVerificationStatus.Success:
+        return this.markRevoked(credential, reason);
+      case CredentialVerificationStatus.Pending:
+        throw new ConflictException('Use reject for pending credentials');
+      default:
+        throw new ConflictException(
+          `A credential in status ${credential.credentialStatus} cannot be revoked.`,
+        );
+    }
   }
 
-  async deleteCredential(credentialId: number): Promise<DeleteResult> {
-    return this.credentialsRepository.delete({ id: credentialId });
+  /**
+   * Removes a PENDING request of this issuer together with the keypair
+   * verification created for it. Issued credentials are revoked, not removed.
+   */
+  async rejectPendingCredential(
+    credentialId: number,
+    issuer: User,
+  ): Promise<void> {
+    const credential = await this.loadOwnedCredential(credentialId, issuer.id);
+
+    if (credential.credentialStatus !== CredentialVerificationStatus.Pending) {
+      throw new ConflictException('Use revoke for issued credentials');
+    }
+
+    await this.removeKeypairVerificationOfRequest(credential);
+    await this.credentialsRepository.delete({ id: credential.id });
+  }
+
+  /**
+   * A credential belongs to the issuer it was requested from. A foreign or
+   * unknown id answers 404 on purpose: the response must not confirm that
+   * the id exists.
+   */
+  private async loadOwnedCredential(
+    credentialId: number,
+    issuerId: number,
+  ): Promise<Credential> {
+    const credential = await this.issuedCredentialQuery()
+      .leftJoinAndSelect('credential.issuer', 'issuer')
+      .where(
+        'credential.id = :credentialId AND credential.issuerId = :issuerId',
+        {
+          credentialId,
+          issuerId,
+        },
+      )
+      .getOne();
+
+    if (!credential) {
+      throw new NotFoundException('Credential not found.');
+    }
+
+    return credential;
+  }
+
+  private async markRevoked(
+    credential: Credential,
+    reason?: string,
+  ): Promise<Credential> {
+    credential.credentialStatus = CredentialVerificationStatus.Revoked;
+    credential.revokedAt = new Date();
+    credential.revokedReason = reason?.trim() || null;
+    const revoked = await this.credentialsRepository.save(credential);
+    this.emitCredentialRevoked(revoked);
+    return revoked;
+  }
+
+  /**
+   * A data-supplier request is created together with an EKVC row that attests
+   * the did:key snapshotted on the request. Rejecting the request removes that
+   * EKVC so the creator can run a new keypair challenge and request again.
+   * The link is the did:key, which the EKVC stores in `value`; only rows
+   * created with or after the request are removed, so an earlier issued
+   * credential that reused the same key keeps its EKVC. The EKVC goes first:
+   * if that delete fails the request stays and the rejection can be retried.
+   */
+  private async removeKeypairVerificationOfRequest(
+    request: Credential,
+  ): Promise<void> {
+    if (
+      !REQUEST_TYPES_WITH_KEYPAIR_VERIFICATION.includes(request.credentialType)
+    ) {
+      return;
+    }
+
+    const derivedDidKey = this.extractKeypairSnapshotDidKey(request);
+    if (!derivedDidKey) {
+      return;
+    }
+
+    await this.credentialsRepository.delete({
+      userId: request.userId,
+      credentialType: CredentialType.ExternalKeypairVerification,
+      value: derivedDidKey,
+      createdAt: MoreThanOrEqual(request.createdAt),
+    });
+  }
+
+  /**
+   * Platform-issued attestation that the creator's Liccium account is
+   * linked. One SUCCESS row per user: an existing row is returned as is, so
+   * the callers (Liccium connect and export) stay idempotent.
+   */
+  async ensureCreatorCredential(user: User): Promise<Credential> {
+    const existing = await this.findCreatorCredential(user);
+    if (existing) {
+      return existing;
+    }
+
+    const { credentialObject, jws } =
+      await generateCreatorCredentialObjectAndJWS(user, credentialsHost);
+    const credential = this.credentialsRepository.create({
+      email: credentialsHost,
+      value: credentialsHost,
+      credentialType: CredentialType.Creator,
+      credentialStatus: CredentialVerificationStatus.Success,
+      credentialObject,
+      token: jws,
+      user,
+    });
+
+    try {
+      return await this.credentialsRepository.save(credential, {
+        reload: true,
+      });
+    } catch (error) {
+      // Unique violation: a concurrent request issued the row first.
+      if (error?.code === POSTGRES_UNIQUE_VIOLATION) {
+        return this.findCreatorCredential(user);
+      }
+      throw error;
+    }
+  }
+
+  private findCreatorCredential(user: User): Promise<Credential | null> {
+    return this.credentialsRepository.findOne({
+      where: {
+        userId: user.id,
+        credentialType: CredentialType.Creator,
+        credentialStatus: CredentialVerificationStatus.Success,
+      },
+    });
+  }
+
+  private emitCredentialRequested(request: Credential, creator: User): void {
+    const payload: CredentialRequestedEvent = {
+      credentialId: request.id,
+      issuerId: request.issuerId,
+      creatorId: creator.id,
+      credentialType: request.credentialType,
+    };
+    this.eventEmitter.emit(NotificationEvent.CredentialRequested, payload);
+  }
+
+  private emitCredentialRevoked(credential: Credential): void {
+    const payload: CredentialRevokedEvent = {
+      credentialId: credential.id,
+      issuerId: credential.issuerId,
+      creatorId: credential.userId,
+      credentialType: credential.credentialType,
+      reason: credential.revokedReason ?? null,
+    };
+    this.eventEmitter.emit(NotificationEvent.CredentialRevoked, payload);
   }
 
   async createWalletCredential(
@@ -529,7 +750,12 @@ export class CredentialsService {
       user,
     });
 
-    return this.credentialsRepository.save(credential, { reload: true });
+    const savedCredential = await this.credentialsRepository.save(credential, {
+      reload: true,
+    });
+    this.emitCredentialRequested(savedCredential, user);
+
+    return savedCredential;
   }
 
   async initiateMembershipCredentialAcceptance(
@@ -629,9 +855,7 @@ export class CredentialsService {
 
     if (!found) return undefined;
 
-    const credentialObject = { ...found.credentialObject };
-    delete credentialObject.__keypairSnapshot;
-    delete credentialObject.__acceptanceChallenge;
+    const credentialObject = stripTransientFields(found.credentialObject);
 
     return { credentialObject, proof: { type: 'JwtProof2020', jwt: found.token } };
   }
@@ -705,6 +929,7 @@ export class CredentialsService {
       user,
     });
     await this.credentialsRepository.save(ekvcCredential);
+    this.emitCredentialRequested(savedCredential, user);
 
     return savedCredential;
   }
@@ -807,9 +1032,7 @@ export class CredentialsService {
 
     if (!found) return undefined;
 
-    const credentialObject = { ...found.credentialObject };
-    delete credentialObject.__keypairSnapshot;
-    delete credentialObject.__acceptanceChallenge;
+    const credentialObject = stripTransientFields(found.credentialObject);
 
     return { credentialObject, proof: { type: 'JwtProof2020', jwt: found.token } };
   }
@@ -882,6 +1105,7 @@ export class CredentialsService {
       user,
     });
     await this.credentialsRepository.save(ekvcCredential);
+    this.emitCredentialRequested(savedCredential, user);
 
     return savedCredential;
   }
@@ -1005,17 +1229,15 @@ export class CredentialsService {
     }
 
     const cert = new crypto.X509Certificate(issuer.externalCertPem);
-    const signatureView = new Uint8Array(signatureBuffer);
-    const isValid = crypto
-      .createVerify('SHA256')
-      .update(challenge.signingInput)
-      .verify(cert.publicKey, signatureView);
+    const storedSignature = this.verifySignatureOrThrow(
+      cert.publicKey,
+      challenge.signingInput,
+      signatureBuffer,
+    );
 
-    if (!isValid) {
-      throw new ConflictException('Signature verification failed.');
-    }
-
-    const token = `${challenge.signingInput}.${this.toBase64Url(signatureBuffer)}`;
+    const token = `${challenge.signingInput}.${this.toBase64Url(
+      storedSignature,
+    )}`;
 
     pending.credentialStatus = CredentialVerificationStatus.Success;
     pending.credentialObject = challenge.credentialObject;
@@ -1026,6 +1248,70 @@ export class CredentialsService {
     const result = pending.credentialObject;
     result.proof = { type: 'JwtProof2020', jwt: token };
     return result;
+  }
+
+  /**
+   * Verifies the issuer's signature over the signing input and returns it in
+   * the encoding the JWS token stores. ES256 (EC certificate): the DER form
+   * `openssl dgst -sign` emits is accepted and converted to raw r||s so
+   * standard JOSE verifiers accept the token; tokens stored before this
+   * conversion keep their DER signature. RS256: the PKCS#1 signature as is.
+   */
+  private verifySignatureOrThrow(
+    publicKey: crypto.KeyObject,
+    signingInput: string,
+    signature: Buffer,
+  ): Buffer {
+    return publicKey.asymmetricKeyType === 'ec'
+      ? this.verifyEcdsaSignature(publicKey, signingInput, signature)
+      : this.verifyRsaSignature(publicKey, signingInput, signature);
+  }
+
+  private verifyEcdsaSignature(
+    publicKey: crypto.KeyObject,
+    signingInput: string,
+    signature: Buffer,
+  ): Buffer {
+    const rawSignature = this.toRawEcdsaSignature(signature);
+    const isValid = crypto.verify(
+      'sha256',
+      Buffer.from(signingInput),
+      { key: publicKey, dsaEncoding: 'ieee-p1363' },
+      rawSignature,
+    );
+
+    if (!isValid) {
+      throw new ConflictException('Signature verification failed.');
+    }
+
+    return rawSignature;
+  }
+
+  private verifyRsaSignature(
+    publicKey: crypto.KeyObject,
+    signingInput: string,
+    signature: Buffer,
+  ): Buffer {
+    const isValid = crypto
+      .createVerify('SHA256')
+      .update(signingInput)
+      .verify(publicKey, signature);
+
+    if (!isValid) {
+      throw new ConflictException('Signature verification failed.');
+    }
+
+    return signature;
+  }
+
+  private toRawEcdsaSignature(signature: Buffer): Buffer {
+    try {
+      return normalizeEcdsaSignature(signature);
+    } catch (error) {
+      throw new ConflictException(
+        `Signature is not a valid ECDSA signature: ${error.message}`,
+      );
+    }
   }
 
   /**

@@ -48,6 +48,11 @@ import {
 } from 'src/shared/helpers';
 import { mapIssuerConnectionToCreator } from './users.formatters';
 import { CertificatesService } from 'src/certificates/certificates.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import {
+  ConnectionRequestedEvent,
+  NotificationEvent,
+} from 'src/notifications/notification-events';
 import * as crypto from 'crypto';
 import { publicKeyPemToDid } from 'src/shared/did-key.util';
 import { firstValueFrom } from 'rxjs';
@@ -64,6 +69,7 @@ export class UsersService {
     private httpService: HttpService,
     private connectionsService: ConnectionsService,
     private certificatesService: CertificatesService,
+    private eventEmitter: EventEmitter2,
   ) {}
 
   private generateNonce() {
@@ -123,14 +129,23 @@ export class UsersService {
   }
 
   async create(createUserDto: CreateUserDto): Promise<User> {
-    // Return the existing record if this clerkId is already in the DB.
-    // This covers repeated register calls for the same session and any
-    // race conditions where two requests arrive before either has committed.
+    const { user } = await this.findOrCreate(createUserDto);
+    return user;
+  }
+
+  /**
+   * Returns the user for this clerkId, creating it on first sight. `created`
+   * tells the caller whether a row was inserted, so sign-up side effects run
+   * once even when Clerk redelivers a webhook or two requests race.
+   */
+  async findOrCreate(
+    createUserDto: CreateUserDto,
+  ): Promise<{ user: User; created: boolean }> {
     const existing = await this.userRepository.findOne({
       where: { clerkId: createUserDto.clerkId },
     });
     if (existing) {
-      return existing;
+      return { user: existing, created: false };
     }
 
     const newUser = new User();
@@ -157,9 +172,10 @@ export class UsersService {
       // PostgreSQL unique_violation (23505) means a concurrent request
       // already inserted this clerkId — return that row instead.
       if (err?.code === '23505') {
-        return this.userRepository.findOne({
+        const concurrentlyCreated = await this.userRepository.findOne({
           where: { clerkId: createUserDto.clerkId },
         });
+        return { user: concurrentlyCreated, created: false };
       }
       throw err;
     }
@@ -168,7 +184,7 @@ export class UsersService {
       { email: createUserDto.email, did: user.didKey },
       user,
     );
-    return user;
+    return { user, created: true };
   }
 
   async assignDidKeyAndReissueEmailCredential(user: User) {
@@ -492,6 +508,7 @@ export class UsersService {
       { didKey: user.didKey, licciumDidKey },
       updatedUser,
     );
+    await this.credentialsService.ensureCreatorCredential(updatedUser);
     return updatedUser;
   }
 
@@ -758,7 +775,16 @@ export class UsersService {
         id: issuerId,
       },
     });
-    await this.connectionsService.createConnection([issuer, user]);
+    const connection = await this.connectionsService.createConnection([
+      issuer,
+      user,
+    ]);
+    const payload: ConnectionRequestedEvent = {
+      connectionId: connection.id,
+      issuerId: issuer.id,
+      creatorId: user.id,
+    };
+    this.eventEmitter.emit(NotificationEvent.ConnectionRequested, payload);
   }
 
   async revokeConnection(creatorId: number, user: User) {

@@ -6,14 +6,11 @@ import {
   HttpCode,
   BadRequestException,
   Logger,
+  RawBodyRequest,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { Webhook } from 'svix';
 import { WebhooksService } from './webhooks.service';
-
-interface RawBodyRequest extends Request {
-  rawBody?: Buffer;
-}
 
 @Controller('webhooks')
 export class WebhooksController {
@@ -27,7 +24,7 @@ export class WebhooksController {
     @Headers('svix-id') svixId: string,
     @Headers('svix-timestamp') svixTimestamp: string,
     @Headers('svix-signature') svixSignature: string,
-    @Req() req: RawBodyRequest,
+    @Req() req: RawBodyRequest<Request>,
   ) {
     const secret = process.env.CLERK_WEBHOOK_SIGNING_SECRET;
     if (!secret) {
@@ -39,13 +36,15 @@ export class WebhooksController {
     let event: { type: string; data: any };
 
     try {
-      event = wh.verify(req.rawBody as unknown as string, {
+      event = wh.verify(req.rawBody, {
         'svix-id': svixId,
         'svix-timestamp': svixTimestamp,
         'svix-signature': svixSignature,
       }) as { type: string; data: any };
     } catch (err) {
-      this.logger.warn(`Clerk webhook signature verification failed: ${err.message}`);
+      this.logger.warn(
+        `Clerk webhook signature verification failed: ${err.message}`,
+      );
       throw new BadRequestException('Invalid webhook signature');
     }
 

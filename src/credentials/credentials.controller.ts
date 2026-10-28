@@ -15,15 +15,23 @@ import {
   HttpStatus,
   RawBodyRequest,
   Req,
+  HttpCode,
+  ParseEnumPipe,
+  ValidationPipe,
 } from '@nestjs/common';
 import { CredentialsService } from './credentials.service';
 import { resolveIssuerDidFromCert } from './credentials.helpers';
 import { CreateEmailCredentialDto } from './dto/create-email-credential.dto';
+import { RevokeCredentialDto } from './dto/revoke-credential.dto';
 import { AuthGuard } from 'src/users/guards/clerk-user.guard';
 import { GetUser } from 'src/users/get-user.decorator';
 import { ClerkRole, User } from 'src/users/user.entity';
 import { CredentialVerificationStatus } from 'src/shared/typings/CredentialVerificationStatus';
-import { formatCredentialForUnion } from './credentials.formatters';
+import {
+  formatCredentialForUnion,
+  formatIssuedCredential,
+  formatSingleSuccessCredential,
+} from './credentials.formatters';
 import { CredentialType } from 'src/shared/typings/CredentialType';
 import { UsersService } from 'src/users/users.service';
 import * as jwt from 'jsonwebtoken';
@@ -63,7 +71,11 @@ export class CredentialsController {
   @Get('issuers')
   async getIssuers(
     @GetUser() user: User,
-    @Query('status') status: CredentialVerificationStatus,
+    @Query(
+      'status',
+      new ParseEnumPipe(CredentialVerificationStatus, { optional: true }),
+    )
+    status?: CredentialVerificationStatus,
   ) {
     if (user.clerkRole !== ClerkRole.Issuer) {
       throw new NotFoundException('This api is only for issuers.');
@@ -73,7 +85,7 @@ export class CredentialsController {
         user.id,
         status,
       );
-    return { credentials: credentials.map(formatCredentialForUnion) };
+    return { credentials: credentials.map(formatIssuedCredential) };
   }
 
   @UseGuards(AuthGuard)
@@ -128,6 +140,7 @@ export class CredentialsController {
       licciumDataSupplierCredentials,
       connectCredential,
       keypairVerificationCredentials,
+      creatorCredential,
     ] = await Promise.all([
       this.credentialsService.getCredentialsOfUserByType(
         user,
@@ -161,6 +174,10 @@ export class CredentialsController {
         user,
         CredentialType.ExternalKeypairVerification,
       ),
+      this.credentialsService.getCredentialsOfUserByType(
+        user,
+        CredentialType.Creator,
+      ),
     ]);
 
     return {
@@ -179,6 +196,7 @@ export class CredentialsController {
       keypairVerifications: keypairVerificationCredentials.map(
         formatCredentialForUnion,
       ),
+      verifiableCreator: formatSingleSuccessCredential(creatorCredential),
     };
   }
 
@@ -385,6 +403,7 @@ export class CredentialsController {
       { didKey: user.didKey, licciumDidKey },
       user,
     );
+    await this.credentialsService.ensureCreatorCredential(user);
 
     const [
       emailCredential,
@@ -394,6 +413,7 @@ export class CredentialsController {
       dataSupplierCredentials,
       licciumDataSupplierCredentials,
       connectCredential,
+      creatorCredential,
     ] = await Promise.all([
       this.credentialsService.getCredentialsOfUserByType(
         user,
@@ -422,6 +442,10 @@ export class CredentialsController {
       this.credentialsService.getCredentialsOfUserByType(
         user,
         CredentialType.Connect,
+      ),
+      this.credentialsService.getCredentialsOfUserByType(
+        user,
+        CredentialType.Creator,
       ),
     ]);
 
@@ -459,6 +483,7 @@ export class CredentialsController {
           CredentialVerificationStatus.Success
           ? formatCredentialForUnion(connectCredential[0])
           : undefined,
+      verifiableCreator: formatSingleSuccessCredential(creatorCredential),
     };
 
     return { userId, userEmail, credentials };
@@ -518,7 +543,27 @@ export class CredentialsController {
   }
 
   @UseGuards(AuthGuard)
+  @Post(':credentialId/revoke')
+  async revokeCredentialByIssuer(
+    @GetUser() user: User,
+    @Param('credentialId', ParseIntPipe) credentialId: number,
+    @Body(new ValidationPipe({ whitelist: true })) body: RevokeCredentialDto,
+  ) {
+    if (user.clerkRole !== ClerkRole.Issuer) {
+      throw new NotFoundException('This api is only for Issuers.');
+    }
+
+    const revoked = await this.credentialsService.revokeIssuedCredential(
+      credentialId,
+      user,
+      body.reason,
+    );
+    return formatIssuedCredential(revoked);
+  }
+
+  @UseGuards(AuthGuard)
   @Post(':credentialId/reject')
+  @HttpCode(HttpStatus.NO_CONTENT)
   async rejectCredentialByIssuer(
     @GetUser() user: User,
     @Param('credentialId', ParseIntPipe) credentialId: number,
@@ -527,11 +572,17 @@ export class CredentialsController {
       throw new NotFoundException('This api is only for Issuers.');
     }
 
-    return this.credentialsService.removeMemberCredential(credentialId);
+    await this.credentialsService.rejectPendingCredential(credentialId, user);
   }
 
+  /**
+   * Deprecated: kept for clients that still delete a request this way; it
+   * behaves exactly like reject. Issued credentials are revoked through
+   * POST :credentialId/revoke.
+   */
   @UseGuards(AuthGuard)
   @Delete(':credentialId')
+  @HttpCode(HttpStatus.NO_CONTENT)
   async deleteMemberCredentialByIssuer(
     @GetUser() user: User,
     @Param('credentialId', ParseIntPipe) credentialId: number,
@@ -540,6 +591,6 @@ export class CredentialsController {
       throw new NotFoundException('This api is only for Issuers.');
     }
 
-    return this.credentialsService.removeMemberCredential(credentialId);
+    await this.credentialsService.rejectPendingCredential(credentialId, user);
   }
 }
