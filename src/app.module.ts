@@ -40,6 +40,7 @@ import { NotificationsModule } from './notifications/notifications.module';
       database: process.env.DATABASE_NAME,
       synchronize: false,
       migrationsRun: true,
+      migrations: [__dirname + '/migrations/*.{js,ts}'],
       // Each migration commits on its own: an enum value added by one
       // migration can then be used by the next (PostgreSQL rule).
       migrationsTransactionMode: 'each',
