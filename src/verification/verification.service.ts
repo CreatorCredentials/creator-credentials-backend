@@ -1,11 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
-import { decodeBitstring, isBitSet } from 'src/status-list/bitstring';
-import {
-  STATUS_LIST_ENTRY_TYPE,
-  STATUS_LIST_PURPOSE,
-} from 'src/status-list/status-list.constants';
+import { VC_JWT_MEDIA_TYPE } from 'src/status-list/status-list.constants';
 import { StatusListService } from 'src/status-list/status-list.service';
 import {
   isPlainObject,
@@ -16,8 +12,15 @@ import {
   verifyJwsSignature,
 } from './jws';
 import {
+  assertFetchableListUrl,
+  readRevocationBit,
+  revocationEntryOf,
+  StatusListCheckError,
+  StatusListEntry,
+  verifiedListCredential,
+} from './status-list-check';
+import {
   RevocationCheck,
-  RevocationStatus,
   SignatureCheck,
   ValidityCheck,
   VerificationResult,
@@ -27,6 +30,9 @@ import {
 const JWT_REGISTERED_CLAIMS = ['iat', 'exp', 'nbf', 'iss', 'sub', 'aud', 'jti'];
 const PROOF_KEY = 'proof';
 const REMOTE_LIST_TIMEOUT_MS = 5_000;
+/** A 131 072-bit list is ~16 KB compressed; this leaves room for lists a hundred times larger. */
+const REMOTE_LIST_MAX_BYTES = 2 * 1024 * 1024;
+const JSON_MEDIA_TYPE = 'application/json';
 
 type VerificationInput = {
   jws: ParsedJws;
@@ -34,15 +40,11 @@ type VerificationInput = {
   credential?: Record<string, unknown>;
 };
 
-type StatusListEntry = {
-  statusListIndex: number;
-  statusListCredential: string;
-};
-
 /**
  * Checks a verifiable credential the way a third party would: signature by
  * the `x5c` leaf, validity window, revocation through the status list the
- * credential points at. Nothing is stored and no caller identity is needed.
+ * credential points at (W3C Bitstring Status List §3.2). Nothing is stored
+ * and no caller identity is needed.
  */
 @Injectable()
 export class VerificationService {
@@ -63,8 +65,7 @@ export class VerificationService {
     const revocation = await this.checkRevocation(credential, now);
 
     return {
-      valid:
-        signature.valid && validity.valid && revocation.status !== 'revoked',
+      valid: signature.valid && validity.valid && isNotRevoked(revocation),
       checks: { signature, validity, revocation },
       credential,
     };
@@ -125,60 +126,61 @@ export class VerificationService {
     credential: Record<string, unknown>,
     now: Date,
   ): Promise<RevocationCheck> {
-    const entry = revocationEntryOf(credential.credentialStatus);
-    return {
-      status: await this.revocationStatus(entry),
-      checkedAt: now.toISOString(),
-    };
-  }
-
-  private async revocationStatus(
-    entry: StatusListEntry | undefined,
-  ): Promise<RevocationStatus> {
-    if (!entry) {
-      return 'unknown';
-    }
+    const checkedAt = now.toISOString();
     try {
-      const revoked = await this.isRevoked(entry);
-      return revoked ? 'revoked' : 'valid';
+      const entry = revocationEntryOf(credential.credentialStatus);
+      if (!entry) {
+        return { status: 'unknown', checkedAt };
+      }
+      const revoked = await this.isRevoked(entry, now);
+      return { status: revoked ? 'revoked' : 'valid', checkedAt };
     } catch (error) {
-      this.logger.warn(
-        `status list ${entry.statusListCredential} unavailable: ${error.message}`,
-      );
-      return 'unknown';
+      this.logger.warn(`revocation check failed: ${error.message}`);
+      return {
+        status: 'error',
+        checkedAt,
+        reason:
+          error instanceof StatusListCheckError
+            ? error.reason
+            : 'STATUS_RETRIEVAL_ERROR',
+      };
     }
   }
 
-  private async isRevoked(entry: StatusListEntry): Promise<boolean> {
+  private async isRevoked(entry: StatusListEntry, now: Date): Promise<boolean> {
     if (this.statusList.isLocalListUrl(entry.statusListCredential)) {
       return this.statusList.isRevoked(entry.statusListIndex);
     }
-    const encodedList = await this.fetchRemoteEncodedList(
-      entry.statusListCredential,
+    const list = verifiedListCredential(
+      await this.fetchRemoteList(entry.statusListCredential),
     );
-    return isBitSet(decodeBitstring(encodedList), entry.statusListIndex);
+    return readRevocationBit(list, entry, now);
   }
 
-  private async fetchRemoteEncodedList(url: string): Promise<string> {
-    const response = await firstValueFrom(
-      this.httpService.get<unknown>(url, {
-        headers: { Accept: 'application/json' },
-        timeout: REMOTE_LIST_TIMEOUT_MS,
-      }),
-    );
-    const list =
-      typeof response.data === 'string'
-        ? parseCompactJws(response.data).payload
-        : response.data;
-    const subject = isPlainObject(list) ? list.credentialSubject : undefined;
-    const encodedList = isPlainObject(subject)
-      ? subject.encodedList
-      : undefined;
-    if (typeof encodedList !== 'string') {
-      throw new Error('response carries no credentialSubject.encodedList');
+  private async fetchRemoteList(url: string): Promise<unknown> {
+    await assertFetchableListUrl(url);
+    try {
+      const response = await firstValueFrom(
+        this.httpService.get<unknown>(url, {
+          headers: { Accept: `${VC_JWT_MEDIA_TYPE}, ${JSON_MEDIA_TYPE}` },
+          timeout: REMOTE_LIST_TIMEOUT_MS,
+          maxRedirects: 0,
+          maxContentLength: REMOTE_LIST_MAX_BYTES,
+        }),
+      );
+      return response.data;
+    } catch (error) {
+      throw new StatusListCheckError(
+        'STATUS_RETRIEVAL_ERROR',
+        `status list ${url} could not be fetched: ${error.message}`,
+      );
     }
-    return encodedList;
   }
+}
+
+/** A credential without any revocation entry cannot be checked; one with a failed check is not accepted. */
+function isNotRevoked(revocation: RevocationCheck): boolean {
+  return revocation.status === 'valid' || revocation.status === 'unknown';
 }
 
 function checkValidity(
@@ -201,33 +203,6 @@ function checkValidity(
 /** A date for a string claim: `undefined` when absent, an invalid Date when unparsable. */
 function parseDate(claim: unknown): Date | undefined {
   return typeof claim === 'string' ? new Date(claim) : undefined;
-}
-
-/** The revocation entry of `credentialStatus` (a single entry or a list of them). */
-function revocationEntryOf(
-  credentialStatus: unknown,
-): StatusListEntry | undefined {
-  const entries = (
-    Array.isArray(credentialStatus) ? credentialStatus : [credentialStatus]
-  ).filter(isPlainObject);
-  const entry = entries.find(
-    (candidate) =>
-      candidate.type === STATUS_LIST_ENTRY_TYPE &&
-      candidate.statusPurpose === STATUS_LIST_PURPOSE,
-  );
-  if (!entry) {
-    return undefined;
-  }
-  const statusListIndex = Number(entry.statusListIndex);
-  const statusListCredential = entry.statusListCredential;
-  if (
-    !Number.isInteger(statusListIndex) ||
-    statusListIndex < 0 ||
-    typeof statusListCredential !== 'string'
-  ) {
-    return undefined;
-  }
-  return { statusListIndex, statusListCredential };
 }
 
 function issuerDidOf(credential: Record<string, unknown>): string | null {

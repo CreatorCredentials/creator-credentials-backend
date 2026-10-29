@@ -1,3 +1,4 @@
+import { randomInt } from 'crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -10,15 +11,19 @@ import { CredentialVerificationStatus } from 'src/shared/typings/CredentialVerif
 import { resolveApiBaseUrl } from 'src/shared/app-base-url';
 import { decodeBitstring, encodeBitstring, isBitSet } from './bitstring';
 import {
+  STATUS_LIST_ALLOCATION_ATTEMPTS,
   STATUS_LIST_CACHE_TTL_MS,
+  STATUS_LIST_CAPACITY_WARNING_RATIO,
   STATUS_LIST_CREDENTIAL_TYPE,
   STATUS_LIST_ENTRY_TYPE,
   STATUS_LIST_ID,
   STATUS_LIST_PATH,
   STATUS_LIST_PURPOSE,
-  STATUS_LIST_SEQUENCE,
+  STATUS_LIST_SIZE,
+  STATUS_LIST_SLOT_TABLE,
   STATUS_LIST_SUBJECT_TYPE,
   STATUS_LIST_VALIDITY_MS,
+  VC_JWT_TYP,
 } from './status-list.constants';
 import {
   CredentialStatusEntry,
@@ -28,11 +33,17 @@ import {
 
 type CachedList = { list: Promise<StatusListCredential>; expiresAt: number };
 
+export class StatusListFullError extends Error {
+  constructor() {
+    super(`status list ${STATUS_LIST_ID} has no free index left`);
+  }
+}
+
 /**
  * The platform's revocation list: one Bitstring Status List whose bit `i` is
- * set while the credential holding index `i` is REVOKED. Indices come from a
- * database sequence; the signed list is rebuilt at most once per cache
- * period, or earlier when a revocation invalidates it.
+ * set while the credential holding index `i` is REVOKED. Indices are drawn
+ * at random and never reused; the signed list is rebuilt at most once per
+ * cache period, or earlier when a revocation invalidates it.
  */
 @Injectable()
 export class StatusListService {
@@ -67,12 +78,23 @@ export class StatusListService {
     };
   }
 
-  /** The next free index; each call consumes one entry of the list. */
+  /**
+   * A free index chosen at random; each call consumes one entry of the list
+   * for good. Random draws are retried a few times before a scan for any
+   * free index, so a nearly full list still allocates.
+   */
   async allocateIndex(): Promise<number> {
-    const [row] = await this.credentialsRepository.query(
-      `SELECT nextval('${STATUS_LIST_SEQUENCE}') AS index`,
-    );
-    return Number(row.index);
+    for (
+      let attempt = 0;
+      attempt < STATUS_LIST_ALLOCATION_ATTEMPTS;
+      attempt++
+    ) {
+      const index = await this.claimSlot(randomInt(STATUS_LIST_SIZE));
+      if (index !== undefined) {
+        return index;
+      }
+    }
+    return this.claimAnyFreeSlot();
   }
 
   async reserveEntry(): Promise<ReservedStatusListEntry> {
@@ -103,6 +125,43 @@ export class StatusListService {
     this.cache = null;
   }
 
+  /** The index if it was still free, otherwise undefined. */
+  private async claimSlot(index: number): Promise<number | undefined> {
+    const rows: { index: number }[] = await this.credentialsRepository.query(
+      `INSERT INTO "${STATUS_LIST_SLOT_TABLE}" ("index") VALUES ($1) ON CONFLICT DO NOTHING RETURNING "index"`,
+      [index],
+    );
+    return rows.length ? Number(rows[0].index) : undefined;
+  }
+
+  private async claimAnyFreeSlot(): Promise<number> {
+    await this.warnWhenNearlyFull();
+    const rows: { index: number }[] = await this.credentialsRepository.query(
+      `INSERT INTO "${STATUS_LIST_SLOT_TABLE}" ("index")
+       SELECT free.index FROM generate_series(0, $1) AS free(index)
+       WHERE NOT EXISTS (SELECT 1 FROM "${STATUS_LIST_SLOT_TABLE}" used WHERE used.index = free.index)
+       ORDER BY random() LIMIT 1
+       ON CONFLICT DO NOTHING RETURNING "index"`,
+      [STATUS_LIST_SIZE - 1],
+    );
+    if (!rows.length) {
+      throw new StatusListFullError();
+    }
+    return Number(rows[0].index);
+  }
+
+  private async warnWhenNearlyFull(): Promise<void> {
+    const [row]: { used: string }[] = await this.credentialsRepository.query(
+      `SELECT COUNT(*) AS used FROM "${STATUS_LIST_SLOT_TABLE}"`,
+    );
+    const used = Number(row.used);
+    if (used >= STATUS_LIST_SIZE * STATUS_LIST_CAPACITY_WARNING_RATIO) {
+      this.logger.warn(
+        `status list ${STATUS_LIST_ID}: ${used} of ${STATUS_LIST_SIZE} indices used; plan a second list`,
+      );
+    }
+  }
+
   private async buildCredential(): Promise<StatusListCredential> {
     const revokedIndices = await this.loadRevokedIndices();
     const builtAt = new Date();
@@ -121,9 +180,12 @@ export class StatusListService {
         type: STATUS_LIST_SUBJECT_TYPE,
         statusPurpose: STATUS_LIST_PURPOSE,
         encodedList: encodeBitstring(revokedIndices),
+        ttl: STATUS_LIST_CACHE_TTL_MS,
       },
     };
-    const jwt = await signJWTWithX5c(credentialObject);
+    const jwt = await signJWTWithX5c(credentialObject, undefined, {
+      typ: VC_JWT_TYP,
+    });
     return {
       credential: {
         ...credentialObject,

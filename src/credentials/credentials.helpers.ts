@@ -497,9 +497,16 @@ function derToBase64(derBuffer) {
     throw error;
   }
 }
+/** Extra JOSE header members, e.g. `typ: 'vc+jwt'` for credentials served as `application/vc+jwt`. */
+export type JwsHeaderExtras = { typ?: string };
+
 // Function to sign JWT with x5c header claim
 // If issuerCertPem is provided it is used in x5c instead of the platform cert
-export async function signJWTWithX5c(payload, issuerCertPem?: string) {
+export async function signJWTWithX5c(
+  payload,
+  issuerCertPem?: string,
+  headerExtras: JwsHeaderExtras = {},
+) {
   try {
     const privateKeyPEM = process.env.HALCOM_CERT_PRIVATE_KEY.replaceAll(
       '\\n',
@@ -521,6 +528,7 @@ export async function signJWTWithX5c(payload, issuerCertPem?: string) {
     const signedJWT = jwt.sign(payload, privateKeyPEM, {
       algorithm: 'RS256',
       header: {
+        ...headerExtras,
         x5c: [certB64],
       },
     });

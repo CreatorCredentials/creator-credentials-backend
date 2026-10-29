@@ -20,6 +20,53 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const webcrypto = new Crypto();
 cryptoProvider.set(webcrypto);
 
+const PUBLIC_ADDRESS = '93.184.216.34';
+const dnsLookup = jest.fn();
+jest.mock('dns/promises', () => ({
+  lookup: (...args: unknown[]) => dnsLookup(...args),
+}));
+
+/** A signed BitstringStatusListCredential as a remote issuer would serve it. */
+async function signedStatusList(
+  setIndices: number[],
+  overrides: Record<string, unknown> = {},
+  subjectOverrides: Record<string, unknown> = {},
+): Promise<string> {
+  const now = Date.now();
+  return signJWTWithX5c(
+    {
+      '@context': ['https://www.w3.org/ns/credentials/v2'],
+      id: REMOTE_LIST_URL,
+      type: ['VerifiableCredential', 'BitstringStatusListCredential'],
+      issuer: 'did:web:other.example',
+      validFrom: new Date(now - DAY_MS).toISOString(),
+      validUntil: new Date(now + DAY_MS).toISOString(),
+      credentialSubject: {
+        id: `${REMOTE_LIST_URL}#list`,
+        type: 'BitstringStatusList',
+        statusPurpose: 'revocation',
+        encodedList: encodeBitstring(setIndices),
+        ...subjectOverrides,
+      },
+      ...overrides,
+    },
+    undefined,
+    { typ: 'vc+jwt' },
+  );
+}
+
+function remoteResponse(data: unknown) {
+  httpService.get.mockReturnValue(of({ data }));
+}
+
+function remoteCredential(entryOverrides: Record<string, unknown> = {}) {
+  return buildCredential({
+    credentialStatus: { ...statusEntry(REMOTE_LIST_URL), ...entryOverrides },
+  });
+}
+
+const httpService = { get: jest.fn() };
+
 function statusEntry(statusListCredential: string, index = INDEX) {
   return {
     id: `${statusListCredential}#${index}`,
@@ -97,7 +144,6 @@ function signEs256(
 
 describe('VerificationService', () => {
   const statusList = { isLocalListUrl: jest.fn(), isRevoked: jest.fn() };
-  const httpService = { get: jest.fn() };
   let service: VerificationService;
 
   beforeAll(() => {
@@ -117,6 +163,7 @@ describe('VerificationService', () => {
       (url: string) => url === LOCAL_LIST_URL,
     );
     statusList.isRevoked.mockResolvedValue(false);
+    dnsLookup.mockResolvedValue([{ address: PUBLIC_ADDRESS, family: 4 }]);
     service = new VerificationService(
       statusList as unknown as StatusListService,
       httpService as unknown as HttpService,
@@ -225,36 +272,187 @@ describe('VerificationService', () => {
     expect(statusList.isRevoked).not.toHaveBeenCalled();
   });
 
-  it('reports revocation as unknown when the status list cannot be read', async () => {
+  it('rejects the credential when the status list cannot be read', async () => {
     statusList.isRevoked.mockRejectedValue(new Error('database down'));
     const jwt = await signJWTWithX5c(buildCredential());
 
     const result = await service.verify({ jwt });
 
-    expect(result.checks.revocation.status).toBe('unknown');
-    expect(result.valid).toBe(true);
+    expect(result.checks.revocation).toMatchObject({
+      status: 'error',
+      reason: 'STATUS_RETRIEVAL_ERROR',
+    });
+    expect(result.valid).toBe(false);
   });
 
-  it('fetches a foreign status list over HTTP and reads the bit', async () => {
-    httpService.get.mockReturnValue(
-      of({
-        data: {
-          credentialSubject: { encodedList: encodeBitstring([INDEX]) },
-        },
-      }),
-    );
-    const jwt = await signJWTWithX5c(
-      buildCredential({ credentialStatus: statusEntry(REMOTE_LIST_URL) }),
-    );
+  describe('foreign status lists', () => {
+    it('fetches the list as a JWS, verifies it and reads the bit', async () => {
+      remoteResponse(await signedStatusList([INDEX]));
+      const jwt = await signJWTWithX5c(remoteCredential());
 
-    const result = await service.verify({ jwt });
+      const result = await service.verify({ jwt });
 
-    expect(httpService.get).toHaveBeenCalledWith(
-      REMOTE_LIST_URL,
-      expect.objectContaining({ headers: { Accept: 'application/json' } }),
-    );
-    expect(result.checks.revocation.status).toBe('revoked');
-    expect(statusList.isRevoked).not.toHaveBeenCalled();
+      expect(httpService.get).toHaveBeenCalledWith(
+        REMOTE_LIST_URL,
+        expect.objectContaining({
+          headers: { Accept: 'application/vc+jwt, application/json' },
+          maxRedirects: 0,
+        }),
+      );
+      expect(result.checks.revocation.status).toBe('revoked');
+      expect(statusList.isRevoked).not.toHaveBeenCalled();
+    });
+
+    it('accepts the JSON form that carries the JWS in proof.jwt', async () => {
+      const list = await signedStatusList([]);
+      remoteResponse({ proof: { type: 'JwtProof2020', jwt: list } });
+      const jwt = await signJWTWithX5c(remoteCredential());
+
+      const result = await service.verify({ jwt });
+
+      expect(result.checks.revocation.status).toBe('valid');
+      expect(result.valid).toBe(true);
+    });
+
+    it('rejects a list whose signature does not verify', async () => {
+      const [header, , signature] = (await signedStatusList([INDEX])).split(
+        '.',
+      );
+      const [, forgedPayload] = (await signedStatusList([])).split('.');
+      remoteResponse(`${header}.${forgedPayload}.${signature}`);
+      const jwt = await signJWTWithX5c(remoteCredential());
+
+      const result = await service.verify({ jwt });
+
+      expect(result.checks.revocation).toMatchObject({
+        status: 'error',
+        reason: 'STATUS_VERIFICATION_ERROR',
+      });
+      expect(result.valid).toBe(false);
+    });
+
+    it('rejects a list that is not secured as a JWS at all', async () => {
+      remoteResponse({
+        type: ['VerifiableCredential', 'BitstringStatusListCredential'],
+        credentialSubject: { encodedList: encodeBitstring([]) },
+      });
+      const jwt = await signJWTWithX5c(remoteCredential());
+
+      const result = await service.verify({ jwt });
+
+      expect(result.checks.revocation.reason).toBe('STATUS_VERIFICATION_ERROR');
+    });
+
+    it('rejects a list whose purpose does not include revocation', async () => {
+      remoteResponse(
+        await signedStatusList([], {}, { statusPurpose: 'suspension' }),
+      );
+      const jwt = await signJWTWithX5c(remoteCredential());
+
+      const result = await service.verify({ jwt });
+
+      expect(result.checks.revocation.reason).toBe('STATUS_VERIFICATION_ERROR');
+    });
+
+    it('accepts a list that serves several purposes', async () => {
+      remoteResponse(
+        await signedStatusList(
+          [],
+          {},
+          {
+            statusPurpose: ['suspension', 'revocation'],
+          },
+        ),
+      );
+      const jwt = await signJWTWithX5c(remoteCredential());
+
+      const result = await service.verify({ jwt });
+
+      expect(result.checks.revocation.status).toBe('valid');
+    });
+
+    it('rejects a list shorter than the minimum of 131 072 entries', async () => {
+      remoteResponse(
+        await signedStatusList([], {}, { encodedList: encodeBitstring([], 8) }),
+      );
+      const jwt = await signJWTWithX5c(remoteCredential());
+
+      const result = await service.verify({ jwt });
+
+      expect(result.checks.revocation.reason).toBe('STATUS_LIST_LENGTH_ERROR');
+    });
+
+    it('reports an index outside the list as a range error', async () => {
+      remoteResponse(await signedStatusList([]));
+      const jwt = await signJWTWithX5c(
+        remoteCredential({ statusListIndex: '131072' }),
+      );
+
+      const result = await service.verify({ jwt });
+
+      expect(result.checks.revocation.reason).toBe('RANGE_ERROR');
+    });
+
+    it('rejects a list outside its validity window', async () => {
+      remoteResponse(
+        await signedStatusList([], {
+          validUntil: new Date(Date.now() - DAY_MS).toISOString(),
+        }),
+      );
+      const jwt = await signJWTWithX5c(remoteCredential());
+
+      const result = await service.verify({ jwt });
+
+      expect(result.checks.revocation.reason).toBe('STATUS_VERIFICATION_ERROR');
+    });
+
+    it('refuses to fetch lists that are not public https URLs', async () => {
+      const jwt = await signJWTWithX5c(
+        remoteCredential({ statusListCredential: 'http://other.example/l' }),
+      );
+
+      const result = await service.verify({ jwt });
+
+      expect(result.checks.revocation.reason).toBe('STATUS_RETRIEVAL_ERROR');
+      expect(httpService.get).not.toHaveBeenCalled();
+    });
+
+    it('refuses to fetch lists from private network addresses', async () => {
+      dnsLookup.mockResolvedValue([{ address: '10.0.0.5', family: 4 }]);
+      const jwt = await signJWTWithX5c(remoteCredential());
+
+      const result = await service.verify({ jwt });
+
+      expect(result.checks.revocation.reason).toBe('STATUS_RETRIEVAL_ERROR');
+      expect(httpService.get).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('malformed status entries', () => {
+    it.each([
+      ['a numeric statusListIndex', { statusListIndex: 12 }],
+      ['an index with whitespace', { statusListIndex: ' 12 ' }],
+      ['an index in scientific notation', { statusListIndex: '1e3' }],
+      ['a non-string statusListCredential', { statusListCredential: 7 }],
+    ])('rejects %s as malformed', async (_, overrides) => {
+      const jwt = await signJWTWithX5c(remoteCredential(overrides));
+
+      const result = await service.verify({ jwt });
+
+      expect(result.checks.revocation).toMatchObject({
+        status: 'error',
+        reason: 'MALFORMED_VALUE_ERROR',
+      });
+      expect(result.valid).toBe(false);
+    });
+
+    it('does not read multi-bit statuses it cannot interpret', async () => {
+      const jwt = await signJWTWithX5c(remoteCredential({ statusSize: 2 }));
+
+      const result = await service.verify({ jwt });
+
+      expect(result.checks.revocation.reason).toBe('UNSUPPORTED_STATUS_SIZE');
+    });
   });
 
   it('verifies ES256 tokens in raw and in DER signature form', async () => {

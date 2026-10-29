@@ -85,13 +85,55 @@ describe('StatusListService', () => {
   });
 
   describe('index allocation', () => {
-    it('takes the next value of the status list sequence', async () => {
-      repository.query.mockResolvedValue([{ index: '17' }]);
+    it('claims a random slot of the list and returns it', async () => {
+      repository.query.mockImplementation(
+        async (_sql: string, [index]: [number]) => [{ index: String(index) }],
+      );
 
-      await expect(service.allocateIndex()).resolves.toBe(17);
+      const index = await service.allocateIndex();
 
-      expect(repository.query).toHaveBeenCalledWith(
-        "SELECT nextval('credential_status_list_index_seq') AS index",
+      expect(index).toBeGreaterThanOrEqual(0);
+      expect(index).toBeLessThan(STATUS_LIST_SIZE);
+      expect(repository.query).toHaveBeenCalledTimes(1);
+      expect(repository.query.mock.calls[0][0]).toContain(
+        'INSERT INTO "credential_status_list_slot"',
+      );
+      expect(repository.query.mock.calls[0][1]).toEqual([index]);
+    });
+
+    it('draws again when the random slot is already taken', async () => {
+      repository.query
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ index: '4242' }]);
+
+      await expect(service.allocateIndex()).resolves.toBe(4242);
+
+      expect(repository.query).toHaveBeenCalledTimes(3);
+    });
+
+    it('falls back to a scan for any free slot when random draws keep colliding', async () => {
+      repository.query.mockImplementation(async (sql: string) => {
+        if (sql.includes('COUNT(*)')) return [{ used: '131000' }];
+        if (sql.includes('generate_series')) return [{ index: '7' }];
+        return [];
+      });
+
+      await expect(service.allocateIndex()).resolves.toBe(7);
+
+      const scanCall = repository.query.mock.calls.find(([sql]) =>
+        sql.includes('generate_series'),
+      );
+      expect(scanCall[1]).toEqual([STATUS_LIST_SIZE - 1]);
+    });
+
+    it('fails loudly when the list has no free slot left', async () => {
+      repository.query.mockImplementation(async (sql: string) =>
+        sql.includes('COUNT(*)') ? [{ used: String(STATUS_LIST_SIZE) }] : [],
+      );
+
+      await expect(service.allocateIndex()).rejects.toThrow(
+        'no free index left',
       );
     });
 
@@ -155,10 +197,19 @@ describe('StatusListService', () => {
       const certificate = leafCertificateOf(jws.header);
       expect(certificate.subject).toContain(`CN=${PLATFORM_DID}`);
       expect(verifyJwsSignature(jws, certificate)).toBe(true);
+      expect(jws.header.typ).toBe('vc+jwt');
       expect(jws.payload.credentialSubject).toEqual(
         credential.credentialSubject,
       );
       expect((credential.proof as { jwt: string }).jwt).toBe(jwt);
+    });
+
+    it('tells verifiers how long they may cache the list', async () => {
+      const { credential } = await service.getCredential();
+
+      expect((credential.credentialSubject as { ttl: number }).ttl).toBe(
+        STATUS_LIST_CACHE_TTL_MS,
+      );
     });
 
     it('answers revocation lookups from the list', async () => {
