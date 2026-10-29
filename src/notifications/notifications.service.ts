@@ -2,7 +2,8 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { User } from 'src/users/user.entity';
+import { ClerkRole, User } from 'src/users/user.entity';
+import { resolveAppBaseUrl } from 'src/shared/app-base-url';
 import { MAILER, MailContent, MailerPort } from './mailer.port';
 import {
   ConnectionRequestedEvent,
@@ -16,12 +17,12 @@ import { RecipientsService } from './recipients.service';
 import { connectionRequestedMail } from './templates/connection-requested.mail';
 import { credentialRequestedMail } from './templates/credential-requested.mail';
 import { credentialRevokedMail } from './templates/credential-revoked.mail';
+import { issuedCredentialRevokedMail } from './templates/issued-credential-revoked.mail';
 import { userCreatedMail } from './templates/user-created.mail';
 
-type AddressedMail = MailContent & { to: string[] };
+export { DEFAULT_APP_BASE_URL } from 'src/shared/app-base-url';
 
-/** Origin the mail links point at when APP_BASE_URL is not configured. */
-export const DEFAULT_APP_BASE_URL = 'https://creatorcredentials.app';
+type AddressedMail = MailContent & { to: string[] };
 
 /**
  * Turns domain events into e-mails. Every handler runs after the request
@@ -39,7 +40,7 @@ export class NotificationsService {
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
   ) {
-    this.appBaseUrl = this.resolveAppBaseUrl();
+    this.appBaseUrl = resolveAppBaseUrl((message) => this.logger.warn(message));
   }
 
   @OnEvent(NotificationEvent.UserCreated, { async: true })
@@ -92,18 +93,47 @@ export class NotificationsService {
     );
   }
 
+  /**
+   * The creator always hears about a revocation. When the platform revoked
+   * (admin), the issuer of the credential is told as well; a self-issued
+   * credential has no issuer to tell.
+   */
   @OnEvent(NotificationEvent.CredentialRevoked, { async: true })
   async onCredentialRevoked(event: CredentialRevokedEvent): Promise<void> {
+    const revokedByPlatform = event.revokedByRole === ClerkRole.Admin;
+
+    await this.deliver(NotificationEvent.CredentialRevoked, event, async () => {
+      const [creator, issuer] = await Promise.all([
+        this.loadUser(event.creatorId),
+        this.loadOptionalUser(event.issuerId),
+      ]);
+      return {
+        to: await this.recipientList(creator),
+        ...credentialRevokedMail(
+          {
+            issuerName: issuer?.name ?? null,
+            credentialType: event.credentialType,
+            reason: event.reason,
+            revokedByPlatform,
+          },
+          this.appBaseUrl,
+        ),
+      };
+    });
+
+    if (!revokedByPlatform || !event.issuerId) {
+      return;
+    }
     await this.deliver(NotificationEvent.CredentialRevoked, event, async () => {
       const [issuer, creator] = await this.loadUsers(
         event.issuerId,
         event.creatorId,
       );
       return {
-        to: await this.recipientList(creator),
-        ...credentialRevokedMail(
+        to: await this.recipientList(issuer),
+        ...issuedCredentialRevokedMail(
           {
-            issuerName: issuer.name,
+            creatorName: creator.name,
             credentialType: event.credentialType,
             reason: event.reason,
           },
@@ -132,30 +162,23 @@ export class NotificationsService {
   }
 
   private async loadUsers(...ids: number[]): Promise<User[]> {
-    return Promise.all(
-      ids.map(async (id) => {
-        const user = await this.usersRepository.findOne({ where: { id } });
-        if (!user) {
-          throw new Error(`user ${id} not found`);
-        }
-        return user;
-      }),
-    );
+    return Promise.all(ids.map((id) => this.loadUser(id)));
+  }
+
+  private async loadUser(id: number): Promise<User> {
+    const user = await this.usersRepository.findOne({ where: { id } });
+    if (!user) {
+      throw new Error(`user ${id} not found`);
+    }
+    return user;
+  }
+
+  private async loadOptionalUser(id: number | null): Promise<User | undefined> {
+    return id ? this.loadUser(id) : undefined;
   }
 
   private async recipientList(user: User): Promise<string[]> {
     const email = await this.recipients.emailOf(user);
     return email ? [email] : [];
-  }
-
-  private resolveAppBaseUrl(): string {
-    const configured = process.env.APP_BASE_URL?.trim();
-    if (configured) {
-      return configured;
-    }
-    this.logger.warn(
-      `APP_BASE_URL is not set, notification links use ${DEFAULT_APP_BASE_URL}`,
-    );
-    return DEFAULT_APP_BASE_URL;
   }
 }

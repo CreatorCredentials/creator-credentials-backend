@@ -27,6 +27,7 @@ services:
       NOTIFY_FROM: ${NOTIFY_FROM}
       NOTIFY_ADMIN_EMAILS: ${NOTIFY_ADMIN_EMAILS}
       APP_BASE_URL: ${APP_BASE_URL}
+      API_BASE_URL: ${API_BASE_URL}
       AWS_REGION: ${AWS_REGION}
     volumes:
       - ./:/code

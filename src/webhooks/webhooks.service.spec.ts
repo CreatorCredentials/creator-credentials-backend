@@ -62,6 +62,25 @@ describe('WebhooksService', () => {
     );
   });
 
+  it('maps the ADMIN metadata role to the admin role', async () => {
+    usersService.findOrCreate.mockResolvedValue({
+      user: { ...storedUser, clerkRole: ClerkRole.Admin },
+      created: true,
+    });
+
+    await service.handleEvent({
+      type: 'user.created',
+      data: {
+        ...signUpData,
+        public_metadata: { ...signUpData.public_metadata, role: 'ADMIN' },
+      },
+    });
+
+    expect(usersService.findOrCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ clerkRole: ClerkRole.Admin }),
+    );
+  });
+
   it('does not emit when the user already exists', async () => {
     usersService.findOrCreate.mockResolvedValue({
       user: storedUser,

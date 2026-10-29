@@ -19,6 +19,7 @@ import { CertChallenge } from 'src/cert-challenge/cert-challenge.entity';
 export enum ClerkRole {
   Issuer = 'issuer',
   Creator = 'creator',
+  Admin = 'admin',
 }
 
 @Entity()
@@ -140,7 +141,11 @@ export class User extends BaseEntity {
   @Column({ name: 'external_public_key_pem', nullable: true, type: 'text' })
   externalPublicKeyPem: string;
 
-  @Column({ name: 'active_did_key_source', nullable: false, default: 'platform' })
+  @Column({
+    name: 'active_did_key_source',
+    nullable: false,
+    default: 'platform',
+  })
   activeDidKeySource: string;
 
   @OneToMany(() => KeypairChallenge, (kc) => kc.user)
@@ -149,7 +154,11 @@ export class User extends BaseEntity {
   @Column({ name: 'external_cert_pem', nullable: true, type: 'text' })
   externalCertPem: string;
 
-  @Column({ name: 'active_signing_cert_source', nullable: false, default: 'platform' })
+  @Column({
+    name: 'active_signing_cert_source',
+    nullable: false,
+    default: 'platform',
+  })
   activeSigningCertSource: string;
 
   @Column({ name: 'organization_name', nullable: true, default: null })

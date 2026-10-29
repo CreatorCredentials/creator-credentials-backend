@@ -90,6 +90,23 @@ export class Credential extends BaseEntity {
   })
   revokedReason?: string;
 
+  /** Issuer or admin who revoked the credential; null while it is not revoked. */
+  @Exclude()
+  @ManyToOne(() => User, { eager: false, nullable: true })
+  @JoinColumn({ name: 'revoked_by_user_id' })
+  revokedBy?: User | null;
+
+  @Exclude()
+  @Column({ name: 'revoked_by_user_id', nullable: true })
+  revokedByUserId?: number | null;
+
+  /**
+   * Position of this credential in the platform's Bitstring Status List;
+   * null for credentials issued before the list existed.
+   */
+  @Column({ name: 'status_list_index', type: 'integer', nullable: true })
+  statusListIndex?: number | null;
+
   //TIMESTAMPS
 
   @CreateDateColumn({ name: 'created_at' })

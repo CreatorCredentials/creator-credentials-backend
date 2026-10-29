@@ -13,7 +13,7 @@ import {
 import { CreateEmailCredentialDto } from './dto/create-email-credential.dto';
 import { Credential } from './credential.entity';
 import * as jose from 'jose';
-import { User } from 'src/users/user.entity';
+import { ClerkRole, User } from 'src/users/user.entity';
 import { v4 as uuidv4 } from 'uuid';
 import { CreateWalletCredentialDto } from './dto/create-wallet-credential.dto';
 import { CreateDomainCredentialDto } from './dto/create-domain-credential.dto';
@@ -30,6 +30,7 @@ import {
   generateEmailCredentialObjectAndJWS,
   generateExternalKeypairVerificationCredentialObjectAndJWS,
   generateMembershipCredentialObjectAndJWS,
+  PLATFORM_DID,
   resolveDidKey,
 } from './credentials.helpers';
 import { CreateConnectCredentialDto } from './dto/create-connect-credential.dto';
@@ -42,6 +43,8 @@ import {
   CredentialRevokedEvent,
   NotificationEvent,
 } from 'src/notifications/notification-events';
+import { StatusListService } from 'src/status-list/status-list.service';
+import { CredentialStatusEntry } from 'src/status-list/status-list.types';
 
 const credentialsHost = 'liccium.com';
 const POSTGRES_UNIQUE_VIOLATION = '23505';
@@ -58,6 +61,7 @@ export class CredentialsService {
     @InjectRepository(Credential)
     private credentialsRepository: Repository<Credential>,
     private eventEmitter: EventEmitter2,
+    private statusList: StatusListService,
   ) {}
 
   async getById(id: number, clerkId: string): Promise<Credential> {
@@ -170,12 +174,32 @@ export class CredentialsService {
     reason?: string,
   ): Promise<Credential> {
     const credential = await this.loadOwnedCredential(credentialId, issuer.id);
+    return this.revoke(credential, issuer, reason);
+  }
 
+  /**
+   * Platform-side revocation: an admin may revoke any issued credential, the
+   * ownership rule does not apply. Same state rules as the issuer's revoke.
+   */
+  async revokeCredentialAsAdmin(
+    credentialId: number,
+    admin: User,
+    reason?: string,
+  ): Promise<Credential> {
+    const credential = await this.loadCredentialWithParties(credentialId);
+    return this.revoke(credential, admin, reason);
+  }
+
+  private async revoke(
+    credential: Credential,
+    revokedBy: User,
+    reason?: string,
+  ): Promise<Credential> {
     switch (credential.credentialStatus) {
       case CredentialVerificationStatus.Revoked:
         return credential;
       case CredentialVerificationStatus.Success:
-        return this.markRevoked(credential, reason);
+        return this.markRevoked(credential, revokedBy, reason);
       case CredentialVerificationStatus.Pending:
         throw new ConflictException('Use reject for pending credentials');
       default:
@@ -230,15 +254,36 @@ export class CredentialsService {
     return credential;
   }
 
+  /** Any credential by id with creator, issuer and revoker loaded (admin path). */
+  private async loadCredentialWithParties(
+    credentialId: number,
+  ): Promise<Credential> {
+    const credential = await this.issuedCredentialQuery()
+      .leftJoinAndSelect('credential.issuer', 'issuer')
+      .leftJoinAndSelect('credential.revokedBy', 'revokedBy')
+      .where('credential.id = :credentialId', { credentialId })
+      .getOne();
+
+    if (!credential) {
+      throw new NotFoundException('Credential not found.');
+    }
+
+    return credential;
+  }
+
   private async markRevoked(
     credential: Credential,
+    revokedBy: User,
     reason?: string,
   ): Promise<Credential> {
     credential.credentialStatus = CredentialVerificationStatus.Revoked;
     credential.revokedAt = new Date();
     credential.revokedReason = reason?.trim() || null;
+    credential.revokedBy = revokedBy;
+    credential.revokedByUserId = revokedBy.id;
     const revoked = await this.credentialsRepository.save(credential);
-    this.emitCredentialRevoked(revoked);
+    this.statusList.invalidate();
+    this.emitCredentialRevoked(revoked, revokedBy.clerkRole);
     return revoked;
   }
 
@@ -284,8 +329,13 @@ export class CredentialsService {
       return existing;
     }
 
+    const { index, credentialStatus } = await this.statusList.reserveEntry();
     const { credentialObject, jws } =
-      await generateCreatorCredentialObjectAndJWS(user, credentialsHost);
+      await generateCreatorCredentialObjectAndJWS(
+        user,
+        credentialsHost,
+        credentialStatus,
+      );
     const credential = this.credentialsRepository.create({
       email: credentialsHost,
       value: credentialsHost,
@@ -293,6 +343,7 @@ export class CredentialsService {
       credentialStatus: CredentialVerificationStatus.Success,
       credentialObject,
       token: jws,
+      statusListIndex: index,
       user,
     });
 
@@ -329,13 +380,17 @@ export class CredentialsService {
     this.eventEmitter.emit(NotificationEvent.CredentialRequested, payload);
   }
 
-  private emitCredentialRevoked(credential: Credential): void {
+  private emitCredentialRevoked(
+    credential: Credential,
+    revokedByRole: ClerkRole,
+  ): void {
     const payload: CredentialRevokedEvent = {
       credentialId: credential.id,
       issuerId: credential.issuerId,
       creatorId: credential.userId,
       credentialType: credential.credentialType,
       reason: credential.revokedReason ?? null,
+      revokedByRole,
     };
     this.eventEmitter.emit(NotificationEvent.CredentialRevoked, payload);
   }
@@ -358,6 +413,7 @@ export class CredentialsService {
     const end = new Date();
     end.setFullYear(end.getFullYear() + 3);
 
+    const { index, credentialStatus } = await this.statusList.reserveEntry();
     const credentialObject = {
       '@context': ['https://www.w3.org/ns/credentials/v2'],
       id: `urn:uuid:${uuidv4()}`,
@@ -366,13 +422,14 @@ export class CredentialsService {
         'VerifiableAttestation',
         'VerifiableWallet',
       ],
-      issuer: `did:web:${credentialsHost}`,
+      issuer: PLATFORM_DID,
       validFrom: now.toISOString(),
       validUntil: end.toISOString(),
       credentialSubject: {
         id: resolveDidKey(user),
         walletAddress: createWalletCredentialDto.publicAddress,
       },
+      credentialStatus,
       credentialSchema: [
         {
           id: 'https://github.com/CreatorCredentials/specifications/blob/main/json-schema/verification-credentials/wallet/schema.json',
@@ -408,6 +465,7 @@ export class CredentialsService {
       credentialObject,
       credentialStatus: CredentialVerificationStatus.Success,
       token: jws,
+      statusListIndex: index,
       user,
     });
 
@@ -435,9 +493,11 @@ export class CredentialsService {
       );
     }
 
+    const { index, credentialStatus } = await this.statusList.reserveEntry();
     const { credentialObject, jws } = await generateEmailCredentialObjectAndJWS(
       createEmailCredentialDto,
       user,
+      credentialStatus,
     );
     // const ecPrivateKey = await jose.importJWK(
     //   {
@@ -461,6 +521,7 @@ export class CredentialsService {
       credentialObject,
       credentialStatus: CredentialVerificationStatus.Success,
       token: jws,
+      statusListIndex: index,
       user,
     });
 
@@ -489,8 +550,12 @@ export class CredentialsService {
       // );
     }
 
+    const { index, credentialStatus } = await this.statusList.reserveEntry();
     const { credentialObject, jws } =
-      await generateConnectCredentialObjectAndJWS(createConnectCredentialDto);
+      await generateConnectCredentialObjectAndJWS(
+        createConnectCredentialDto,
+        credentialStatus,
+      );
 
     // const ecPrivateKey = await jose.importJWK(
     //   {
@@ -514,6 +579,7 @@ export class CredentialsService {
       credentialObject,
       credentialStatus: CredentialVerificationStatus.Success,
       token: jws,
+      statusListIndex: index,
       user,
     });
 
@@ -563,10 +629,12 @@ export class CredentialsService {
       await this.removeDomainCredential(user);
     }
 
+    const { index, credentialStatus } = await this.statusList.reserveEntry();
     const { credentialObject, jws } =
       await generateDomainCredentialObjectAndJWS(
         createDomainCredentialDto,
         user,
+        credentialStatus,
       );
 
     // const ecPrivateKey = await jose.importJWK(
@@ -591,6 +659,7 @@ export class CredentialsService {
       credentialStatus: CredentialVerificationStatus.Success,
       credentialObject,
       token: jws,
+      statusListIndex: index,
       user,
     });
 
@@ -638,7 +707,11 @@ export class CredentialsService {
     user: User,
   ): Promise<Credential> {
     const currentDidWebCredential = await this.credentialsRepository.findOne({
-      where: { credentialType: CredentialType.DidWeb, userId: user.id,credentialStatus: CredentialVerificationStatus.Pending, },
+      where: {
+        credentialType: CredentialType.DidWeb,
+        userId: user.id,
+        credentialStatus: CredentialVerificationStatus.Pending,
+      },
     });
 
     if (
@@ -657,6 +730,7 @@ export class CredentialsService {
     const end = new Date();
     end.setFullYear(end.getFullYear() + 3);
 
+    const { index, credentialStatus } = await this.statusList.reserveEntry();
     const credentialObject = {
       '@context': ['https://www.w3.org/ns/credentials/v2'],
       id: `urn:uuid:${uuidv4()}`,
@@ -665,13 +739,14 @@ export class CredentialsService {
         'VerifiableAttestation',
         'VerifiableDidWeb',
       ],
-      issuer: `did:web:${credentialsHost}`,
+      issuer: PLATFORM_DID,
       validFrom: now.toISOString(),
       validUntil: end.toISOString(),
       credentialSubject: {
         id: resolveDidKey(user),
         didWeb: createDidWebCredentialDto.didWeb,
       },
+      credentialStatus,
       credentialSchema: [
         {
           id: 'https://github.com/CreatorCredentials/specifications/blob/main/json-schema/verification-credentials/domain/schema.json',
@@ -707,6 +782,7 @@ export class CredentialsService {
       credentialStatus: CredentialVerificationStatus.Success,
       credentialObject,
       token: jws,
+      statusListIndex: index,
       user,
     });
 
@@ -785,6 +861,7 @@ export class CredentialsService {
     }
 
     const subjectDidKey = this.extractKeypairSnapshotDidKey(pending);
+    const credentialStatus = await this.reserveStatusListEntryFor(pending);
 
     const { credentialObject } = await generateMembershipCredentialObjectAndJWS(
       {
@@ -794,20 +871,33 @@ export class CredentialsService {
       pending.user,
       issuer,
       subjectDidKey,
+      credentialStatus,
     );
 
-    const signingInput = this.buildSigningInput(credentialObject, issuer.externalCertPem);
-    const challenge = { signingInput, credentialObject, initiatedAt: new Date().toISOString() };
+    const signingInput = this.buildSigningInput(
+      credentialObject,
+      issuer.externalCertPem,
+    );
+    const challenge = {
+      signingInput,
+      credentialObject,
+      initiatedAt: new Date().toISOString(),
+    };
 
-    pending.credentialObject = { ...(pending.credentialObject || {}), __acceptanceChallenge: challenge };
+    pending.credentialObject = {
+      ...(pending.credentialObject || {}),
+      __acceptanceChallenge: challenge,
+    };
     await this.credentialsRepository.save(pending, { reload: true });
 
-    const supportingCredential = await this.findMembershipSupportingCredential(pending.userId);
+    const supportingCredential = await this.findMembershipSupportingCredential(
+      pending.userId,
+    );
 
     return {
       challenge,
       commands: [
-        `SIG=$(printf %s "${signingInput}" | openssl dgst -sha256 -sign your_private_key.pem -binary | openssl base64 -A | tr -d '\n') && echo "Signature length: ${"${#SIG}"}" && echo "$SIG" && echo "$SIG" | pbcopy`,
+        `SIG=$(printf %s "${signingInput}" | openssl dgst -sha256 -sign your_private_key.pem -binary | openssl base64 -A | tr -d '\n') && echo "Signature length: ${'${#SIG}'}" && echo "$SIG" && echo "$SIG" | pbcopy`,
       ],
       supportingCredential,
     };
@@ -843,7 +933,9 @@ export class CredentialsService {
 
   private async findMembershipSupportingCredential(
     userId: number,
-  ): Promise<{ credentialObject: any; proof: { type: string; jwt: string } } | undefined> {
+  ): Promise<
+    { credentialObject: any; proof: { type: string; jwt: string } } | undefined
+  > {
     const found = await this.credentialsRepository.findOne({
       where: {
         userId,
@@ -857,7 +949,10 @@ export class CredentialsService {
 
     const credentialObject = stripTransientFields(found.credentialObject);
 
-    return { credentialObject, proof: { type: 'JwtProof2020', jwt: found.token } };
+    return {
+      credentialObject,
+      proof: { type: 'JwtProof2020', jwt: found.token },
+    };
   }
 
   // ─── Data Supplier Credential flow ───────────────────────────────────────────
@@ -900,7 +995,9 @@ export class CredentialsService {
       user,
     });
 
-    const savedCredential = await this.credentialsRepository.save(credential, { reload: true });
+    const savedCredential = await this.credentialsRepository.save(credential, {
+      reload: true,
+    });
 
     const emailCredential = await this.credentialsRepository.findOne({
       where: {
@@ -912,12 +1009,14 @@ export class CredentialsService {
     });
     const userEmail = emailCredential?.email ?? '';
 
+    const ekvcEntry = await this.statusList.reserveEntry();
     const { credentialObject: ekvcObject, jws: ekvcJws } =
       await generateExternalKeypairVerificationCredentialObjectAndJWS(
         user,
         keypairSnapshot.derivedDidKey,
         userEmail,
         user.organizationName,
+        ekvcEntry.credentialStatus,
       );
     const ekvcCredential = this.credentialsRepository.create({
       email: keypairSnapshot.derivedDidKey,
@@ -926,6 +1025,7 @@ export class CredentialsService {
       credentialStatus: CredentialVerificationStatus.Success,
       credentialObject: ekvcObject,
       token: ekvcJws,
+      statusListIndex: ekvcEntry.index,
       user,
     });
     await this.credentialsRepository.save(ekvcCredential);
@@ -961,30 +1061,44 @@ export class CredentialsService {
     }
 
     const subjectDidKey = this.extractKeypairSnapshotDidKey(pending);
+    const credentialStatus = await this.reserveStatusListEntryFor(pending);
 
-    const { credentialObject } = await generateDataSupplierCredentialObjectAndJWS(
-      {
-        value: pending.value,
-        did: subjectDidKey ?? pending.user.didKey,
-      },
-      pending.user,
-      issuer,
-      subjectDidKey,
-      pending.user.organizationName,
+    const { credentialObject } =
+      await generateDataSupplierCredentialObjectAndJWS(
+        {
+          value: pending.value,
+          did: subjectDidKey ?? pending.user.didKey,
+        },
+        pending.user,
+        issuer,
+        subjectDidKey,
+        pending.user.organizationName,
+        credentialStatus,
+      );
+
+    const signingInput = this.buildSigningInput(
+      credentialObject,
+      issuer.externalCertPem,
     );
+    const challenge = {
+      signingInput,
+      credentialObject,
+      initiatedAt: new Date().toISOString(),
+    };
 
-    const signingInput = this.buildSigningInput(credentialObject, issuer.externalCertPem);
-    const challenge = { signingInput, credentialObject, initiatedAt: new Date().toISOString() };
-
-    pending.credentialObject = { ...(pending.credentialObject || {}), __acceptanceChallenge: challenge };
+    pending.credentialObject = {
+      ...(pending.credentialObject || {}),
+      __acceptanceChallenge: challenge,
+    };
     await this.credentialsRepository.save(pending, { reload: true });
 
-    const supportingCredential = await this.findDataSupplierSupportingCredential(pending.userId);
+    const supportingCredential =
+      await this.findDataSupplierSupportingCredential(pending.userId);
 
     return {
       challenge,
       commands: [
-        `SIG=$(printf %s "${signingInput}" | openssl dgst -sha256 -sign your_private_key.pem -binary | openssl base64 -A | tr -d '\n') && echo "Signature length: ${"${#SIG}"}" && echo "$SIG" && echo "$SIG" | pbcopy`,
+        `SIG=$(printf %s "${signingInput}" | openssl dgst -sha256 -sign your_private_key.pem -binary | openssl base64 -A | tr -d '\n') && echo "Signature length: ${'${#SIG}'}" && echo "$SIG" && echo "$SIG" | pbcopy`,
       ],
       supportingCredential,
     };
@@ -1012,7 +1126,9 @@ export class CredentialsService {
     });
 
     if (!pending) {
-      throw new ConflictException('Pending Data Supplier credential not found.');
+      throw new ConflictException(
+        'Pending Data Supplier credential not found.',
+      );
     }
 
     return this.executeSignatureVerification(pending, issuer, signatureBase64);
@@ -1020,7 +1136,9 @@ export class CredentialsService {
 
   private async findDataSupplierSupportingCredential(
     userId: number,
-  ): Promise<{ credentialObject: any; proof: { type: string; jwt: string } } | undefined> {
+  ): Promise<
+    { credentialObject: any; proof: { type: string; jwt: string } } | undefined
+  > {
     const found = await this.credentialsRepository.findOne({
       where: {
         userId,
@@ -1034,7 +1152,10 @@ export class CredentialsService {
 
     const credentialObject = stripTransientFields(found.credentialObject);
 
-    return { credentialObject, proof: { type: 'JwtProof2020', jwt: found.token } };
+    return {
+      credentialObject,
+      proof: { type: 'JwtProof2020', jwt: found.token },
+    };
   }
 
   // ─── Liccium Data Supplier Credential flow ───────────────────────────────────
@@ -1077,7 +1198,9 @@ export class CredentialsService {
       user,
     });
 
-    const savedCredential = await this.credentialsRepository.save(credential, { reload: true });
+    const savedCredential = await this.credentialsRepository.save(credential, {
+      reload: true,
+    });
 
     const emailCredential = await this.credentialsRepository.findOne({
       where: {
@@ -1089,11 +1212,14 @@ export class CredentialsService {
     });
     const userEmail = emailCredential?.email ?? '';
 
+    const ekvcEntry = await this.statusList.reserveEntry();
     const { credentialObject: ekvcObject, jws: ekvcJws } =
       await generateExternalKeypairVerificationCredentialObjectAndJWS(
         user,
         keypairSnapshot.derivedDidKey,
         userEmail,
+        undefined,
+        ekvcEntry.credentialStatus,
       );
     const ekvcCredential = this.credentialsRepository.create({
       email: keypairSnapshot.derivedDidKey,
@@ -1102,6 +1228,7 @@ export class CredentialsService {
       credentialStatus: CredentialVerificationStatus.Success,
       credentialObject: ekvcObject,
       token: ekvcJws,
+      statusListIndex: ekvcEntry.index,
       user,
     });
     await this.credentialsRepository.save(ekvcCredential);
@@ -1137,29 +1264,43 @@ export class CredentialsService {
     }
 
     const subjectDidKey = this.extractKeypairSnapshotDidKey(pending);
+    const credentialStatus = await this.reserveStatusListEntryFor(pending);
 
-    const { credentialObject } = await generateLicciumDataSupplierCredentialObjectAndJWS(
-      {
-        value: pending.value,
-        did: subjectDidKey ?? pending.user.didKey,
-      },
-      pending.user,
-      issuer,
-      subjectDidKey,
+    const { credentialObject } =
+      await generateLicciumDataSupplierCredentialObjectAndJWS(
+        {
+          value: pending.value,
+          did: subjectDidKey ?? pending.user.didKey,
+        },
+        pending.user,
+        issuer,
+        subjectDidKey,
+        credentialStatus,
+      );
+
+    const signingInput = this.buildSigningInput(
+      credentialObject,
+      issuer.externalCertPem,
     );
+    const challenge = {
+      signingInput,
+      credentialObject,
+      initiatedAt: new Date().toISOString(),
+    };
 
-    const signingInput = this.buildSigningInput(credentialObject, issuer.externalCertPem);
-    const challenge = { signingInput, credentialObject, initiatedAt: new Date().toISOString() };
-
-    pending.credentialObject = { ...(pending.credentialObject || {}), __acceptanceChallenge: challenge };
+    pending.credentialObject = {
+      ...(pending.credentialObject || {}),
+      __acceptanceChallenge: challenge,
+    };
     await this.credentialsRepository.save(pending, { reload: true });
 
-    const supportingCredential = await this.findDataSupplierSupportingCredential(pending.userId);
+    const supportingCredential =
+      await this.findDataSupplierSupportingCredential(pending.userId);
 
     return {
       challenge,
       commands: [
-        `SIG=$(printf %s "${signingInput}" | openssl dgst -sha256 -sign your_private_key.pem -binary | openssl base64 -A | tr -d '\n') && echo "Signature length: ${"${#SIG}"}" && echo "$SIG" && echo "$SIG" | pbcopy`,
+        `SIG=$(printf %s "${signingInput}" | openssl dgst -sha256 -sign your_private_key.pem -binary | openssl base64 -A | tr -d '\n') && echo "Signature length: ${'${#SIG}'}" && echo "$SIG" && echo "$SIG" | pbcopy`,
       ],
       supportingCredential,
     };
@@ -1187,7 +1328,9 @@ export class CredentialsService {
     });
 
     if (!pending) {
-      throw new ConflictException('Pending Liccium Data Supplier credential not found.');
+      throw new ConflictException(
+        'Pending Liccium Data Supplier credential not found.',
+      );
     }
 
     return this.executeSignatureVerification(pending, issuer, signatureBase64);
@@ -1315,6 +1458,21 @@ export class CredentialsService {
   }
 
   /**
+   * The status-list entry an issuer-issued credential is signed with. The
+   * index is reserved when the acceptance is initiated and stored on the
+   * pending row, so re-initiating the challenge reuses it instead of
+   * consuming another entry.
+   */
+  private async reserveStatusListEntryFor(
+    pending: Credential,
+  ): Promise<CredentialStatusEntry> {
+    if (pending.statusListIndex == null) {
+      pending.statusListIndex = await this.statusList.allocateIndex();
+    }
+    return this.statusList.entryFor(pending.statusListIndex);
+  }
+
+  /**
    * If the pending credential row was created right after the creator
    * completed a single-use keypair challenge, the verified did:key was
    * snapshotted onto the credential's JSON column. We pull it out here so
@@ -1345,7 +1503,9 @@ export class CredentialsService {
       typ: 'JWT',
     };
     const encodedHeader = this.toBase64Url(Buffer.from(JSON.stringify(header)));
-    const encodedPayload = this.toBase64Url(Buffer.from(JSON.stringify(payload)));
+    const encodedPayload = this.toBase64Url(
+      Buffer.from(JSON.stringify(payload)),
+    );
     return `${encodedHeader}.${encodedPayload}`;
   }
 

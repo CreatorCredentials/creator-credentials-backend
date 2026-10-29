@@ -33,4 +33,6 @@ export type CredentialRequestedEvent = {
 
 export type CredentialRevokedEvent = CredentialRequestedEvent & {
   reason: string | null;
+  /** Issuer for the issuer's own revoke, admin for a platform-side revoke. */
+  revokedByRole: ClerkRole;
 };

@@ -20,6 +20,7 @@ import {
 } from 'src/connections/connection.entity';
 import { CredentialType } from 'src/shared/typings/CredentialType';
 import { CredentialVerificationStatus } from 'src/shared/typings/CredentialVerificationStatus';
+import { StatusListService } from 'src/status-list/status-list.service';
 
 jest.mock('./credentials.helpers', () => ({
   ...jest.requireActual('./credentials.helpers'),
@@ -29,8 +30,18 @@ jest.mock('./credentials.helpers', () => ({
 const ISSUER_ID = 10;
 const OTHER_ISSUER_ID = 11;
 const CREATOR_ID = 20;
+const ADMIN_ID = 30;
 const EXTERNAL_DID_KEY = 'did:key:zExternal';
 const PLATFORM_HOST = 'liccium.com';
+const STATUS_LIST_URL = 'https://api.example.org/v1/status-lists/1';
+const RESERVED_INDEX = 42;
+const RESERVED_ENTRY = {
+  id: `${STATUS_LIST_URL}#${RESERVED_INDEX}`,
+  type: 'BitstringStatusListEntry',
+  statusPurpose: 'revocation',
+  statusListIndex: String(RESERVED_INDEX),
+  statusListCredential: STATUS_LIST_URL,
+};
 
 function buildUser(overrides: Partial<User>): User {
   return Object.assign(new User(), {
@@ -63,6 +74,11 @@ const creator = buildUser({
   clerkRole: ClerkRole.Creator,
   name: 'Alice',
   didKey: 'did:key:zAlice',
+});
+const admin = buildUser({
+  id: ADMIN_ID,
+  clerkRole: ClerkRole.Admin,
+  name: 'Platform operator',
 });
 
 function buildCredential(overrides: Partial<Credential>): Credential {
@@ -115,10 +131,20 @@ describe('CredentialsService', () => {
     getOne: jest.fn(),
   };
   const eventEmitter = { emit: jest.fn() };
+  const statusList = {
+    reserveEntry: jest.fn(),
+    allocateIndex: jest.fn(),
+    entryFor: jest.fn(),
+    invalidate: jest.fn(),
+  };
   let service: CredentialsService;
 
   beforeEach(async () => {
     jest.resetAllMocks();
+    statusList.reserveEntry.mockResolvedValue({
+      index: RESERVED_INDEX,
+      credentialStatus: RESERVED_ENTRY,
+    });
     repository.createQueryBuilder.mockReturnValue(queryBuilder);
     queryBuilder.leftJoinAndSelect.mockReturnValue(queryBuilder);
     queryBuilder.where.mockReturnValue(queryBuilder);
@@ -135,6 +161,7 @@ describe('CredentialsService', () => {
         CredentialsService,
         { provide: getRepositoryToken(Credential), useValue: repository },
         { provide: EventEmitter2, useValue: eventEmitter },
+        { provide: StatusListService, useValue: statusList },
       ],
     }).compile();
 
@@ -190,7 +217,17 @@ describe('CredentialsService', () => {
       );
       expect(revoked.revokedAt.getTime()).toBeGreaterThanOrEqual(before);
       expect(revoked.revokedReason).toBe('Membership ended');
+      expect(revoked.revokedByUserId).toBe(ISSUER_ID);
+      expect(revoked.revokedBy).toBe(issuer);
       expect(repository.save).toHaveBeenCalledWith(revoked);
+    });
+
+    it('invalidates the status list so the revocation bit shows up at once', async () => {
+      queryBuilder.getOne.mockResolvedValue(buildCredential({}));
+
+      await service.revokeIssuedCredential(1, issuer);
+
+      expect(statusList.invalidate).toHaveBeenCalledTimes(1);
     });
 
     it('emits credential.revoked after the row is saved', async () => {
@@ -207,6 +244,7 @@ describe('CredentialsService', () => {
           creatorId: CREATOR_ID,
           credentialType: CredentialType.Member,
           reason: 'Membership ended',
+          revokedByRole: ClerkRole.Issuer,
         },
       );
     });
@@ -299,6 +337,74 @@ describe('CredentialsService', () => {
       expect(result.revokedReason).toBe('first reason');
       expect(repository.save).not.toHaveBeenCalled();
       expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('revokeCredentialAsAdmin', () => {
+    it('revokes a credential of any issuer and records the admin as revoker', async () => {
+      queryBuilder.getOne.mockResolvedValue(
+        buildCredential({ issuerId: OTHER_ISSUER_ID, issuer: otherIssuer }),
+      );
+
+      const revoked = await service.revokeCredentialAsAdmin(
+        1,
+        admin,
+        'Terms violated',
+      );
+
+      expect(queryBuilder.where).toHaveBeenCalledWith(
+        'credential.id = :credentialId',
+        { credentialId: 1 },
+      );
+      expect(queryBuilder.leftJoinAndSelect).toHaveBeenCalledWith(
+        'credential.revokedBy',
+        'revokedBy',
+      );
+      expect(revoked.credentialStatus).toBe(
+        CredentialVerificationStatus.Revoked,
+      );
+      expect(revoked.revokedByUserId).toBe(ADMIN_ID);
+      expect(revoked.revokedBy).toBe(admin);
+      expect(revoked.revokedReason).toBe('Terms violated');
+      expect(repository.save).toHaveBeenCalledWith(revoked);
+      expect(statusList.invalidate).toHaveBeenCalledTimes(1);
+    });
+
+    it('emits credential.revoked with the admin role', async () => {
+      queryBuilder.getOne.mockResolvedValue(buildCredential({}));
+
+      await service.revokeCredentialAsAdmin(1, admin);
+
+      expect(eventEmitter.emit).toHaveBeenCalledWith(
+        NotificationEvent.CredentialRevoked,
+        expect.objectContaining({
+          credentialId: 1,
+          issuerId: ISSUER_ID,
+          creatorId: CREATOR_ID,
+          revokedByRole: ClerkRole.Admin,
+        }),
+      );
+    });
+
+    it('answers 409 for a pending request, like the issuer revoke', async () => {
+      queryBuilder.getOne.mockResolvedValue(
+        buildCredential({
+          credentialStatus: CredentialVerificationStatus.Pending,
+        }),
+      );
+
+      await expect(service.revokeCredentialAsAdmin(1, admin)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 for an unknown credential', async () => {
+      queryBuilder.getOne.mockResolvedValue(null);
+
+      await expect(service.revokeCredentialAsAdmin(99, admin)).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -483,15 +589,29 @@ describe('CredentialsService', () => {
 
       const issued = await service.ensureCreatorCredential(creator);
 
-      expect(builder).toHaveBeenCalledWith(creator, PLATFORM_HOST);
+      expect(builder).toHaveBeenCalledWith(
+        creator,
+        PLATFORM_HOST,
+        RESERVED_ENTRY,
+      );
       expect(repository.save).toHaveBeenCalledTimes(1);
       expect(issued).toMatchObject({
         credentialType: CredentialType.Creator,
         credentialStatus: CredentialVerificationStatus.Success,
         value: PLATFORM_HOST,
         token: 'creator.jws',
+        statusListIndex: RESERVED_INDEX,
         user: creator,
       });
+    });
+
+    it('reserves one status-list entry per issued credential', async () => {
+      repository.findOne.mockResolvedValue(null);
+      builder.mockResolvedValue({ credentialObject: {}, jws: 'creator.jws' });
+
+      await service.ensureCreatorCredential(creator);
+
+      expect(statusList.reserveEntry).toHaveBeenCalledTimes(1);
     });
 
     it('returns the row a concurrent request issued first', async () => {

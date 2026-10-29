@@ -1,16 +1,25 @@
-import * as jose from 'jose';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { CreateMemberCredentialDto } from './dto/create-member-credential.dto';
 import { User } from 'src/users/user.entity';
-import { NotFoundException } from '@nestjs/common';
 import * as jwt from 'jsonwebtoken';
 import { CreateEmailCredentialDto } from './dto/create-email-credential.dto';
 import { CreateConnectCredentialDto } from './dto/create-connect-credential.dto';
 import { CreateDomainCredentialDto } from './dto/create-domain-credential.dto';
+import { CredentialStatusEntry } from 'src/status-list/status-list.types';
 
 const credentialsHost = 'liccium.com';
+/** DID of the platform itself: issuer of self-issued credentials and of the status list. */
+export const PLATFORM_DID = `did:web:${credentialsHost}`;
+
+/**
+ * The `credentialStatus` member of a credential object, or nothing when the
+ * credential gets no status-list entry. Spread after `credentialSubject`.
+ */
+function withCredentialStatus(credentialStatus?: CredentialStatusEntry) {
+  return credentialStatus ? { credentialStatus } : {};
+}
 
 export function resolveDidKey(user: User): string {
   if (user.activeDidKeySource === 'external' && user.externalDidKey) {
@@ -34,7 +43,7 @@ export function resolveMemberOf(issuer: User): string {
 export function resolveIssuerDid(issuer: User): string {
   if (issuer.didWeb) return issuer.didWeb;
   if (issuer.domain) return `did:web:${issuer.domain}`;
-  return `did:web:${credentialsHost}`;
+  return PLATFORM_DID;
 }
 
 /**
@@ -62,7 +71,7 @@ export function resolveIssuerDidFromCert(certPem: string): string {
     return val.startsWith('did:web:') ? val : `did:web:${val}`;
   }
 
-  return `did:web:${credentialsHost}`;
+  return PLATFORM_DID;
 }
 
 export async function generateMembershipCredentialObjectAndJWS(
@@ -70,6 +79,7 @@ export async function generateMembershipCredentialObjectAndJWS(
   creator: User,
   issuer: User,
   subjectDidKeyOverride?: string,
+  credentialStatus?: CredentialStatusEntry,
 ) {
   const now = new Date();
   const end = new Date();
@@ -100,6 +110,7 @@ export async function generateMembershipCredentialObjectAndJWS(
       id: subjectDidKey,
       memberOf: resolveMemberOf(issuer),
     },
+    ...withCredentialStatus(credentialStatus),
     credentialSchema: [
       {
         id: 'https://github.com/CreatorCredentials/specifications/blob/main/json-schema/verification-credentials/member-cert-signed/schema.json',
@@ -129,6 +140,7 @@ export async function generateDataSupplierCredentialObjectAndJWS(
   issuer: User,
   subjectDidKeyOverride?: string,
   organizationName?: string | null,
+  credentialStatus?: CredentialStatusEntry,
 ) {
   const now = new Date();
   const end = new Date();
@@ -162,6 +174,7 @@ export async function generateDataSupplierCredentialObjectAndJWS(
       dataSupplierFor,
       ...(organizationName ? { sameAs: organizationName } : {}),
     },
+    ...withCredentialStatus(credentialStatus),
     credentialSchema: [
       {
         id: 'https://github.com/CreatorCredentials/specifications/blob/main/json-schema/verification-credentials/data-supplier-cert-signed/schema.json',
@@ -185,6 +198,7 @@ export async function generateLicciumDataSupplierCredentialObjectAndJWS(
   creator: User,
   issuer: User,
   subjectDidKeyOverride?: string,
+  credentialStatus?: CredentialStatusEntry,
 ) {
   const now = new Date();
   const end = new Date();
@@ -200,10 +214,9 @@ export async function generateLicciumDataSupplierCredentialObjectAndJWS(
     ? resolveIssuerDidFromCert(issuerCertPem)
     : resolveIssuerDid(issuer);
 
-  const dataSupplierFor =
-    issuerDid.includes(OPENFUTURE_ISSUER_DID)
-      ? OPENFUTURE_DATA_SUPPLIER_FOR
-      : createMemberCredentialDto.value;
+  const dataSupplierFor = issuerDid.includes(OPENFUTURE_ISSUER_DID)
+    ? OPENFUTURE_DATA_SUPPLIER_FOR
+    : createMemberCredentialDto.value;
 
   const credentialObject = {
     '@context': ['https://www.w3.org/ns/credentials/v2'],
@@ -220,6 +233,7 @@ export async function generateLicciumDataSupplierCredentialObjectAndJWS(
       id: subjectDidKey,
       dataSupplierFor,
     },
+    ...withCredentialStatus(credentialStatus),
     credentialSchema: [
       {
         id: 'https://github.com/CreatorCredentials/specifications/blob/main/json-schema/verification-credentials/data-supplier-cert-signed/schema.json',
@@ -243,6 +257,7 @@ export async function generateExternalKeypairVerificationCredentialObjectAndJWS(
   derivedDidKey: string,
   email: string,
   organizationName?: string | null,
+  credentialStatus?: CredentialStatusEntry,
 ) {
   const now = new Date();
   const end = new Date();
@@ -256,7 +271,7 @@ export async function generateExternalKeypairVerificationCredentialObjectAndJWS(
       'VerifiableAttestation',
       'ExternalKeypairVerification',
     ],
-    issuer: `did:web:${credentialsHost}`,
+    issuer: PLATFORM_DID,
     validFrom: now.toISOString(),
     validUntil: end.toISOString(),
     credentialSubject: {
@@ -264,6 +279,7 @@ export async function generateExternalKeypairVerificationCredentialObjectAndJWS(
       sameAs: derivedDidKey,
       ...(organizationName ? { organizationName } : {}),
     },
+    ...withCredentialStatus(credentialStatus),
     credentialSchema: [
       {
         id: 'https://github.com/CreatorCredentials/specifications/blob/main/json-schema/verification-credentials/external-keypair/schema.json',
@@ -285,6 +301,7 @@ export async function generateExternalKeypairVerificationCredentialObjectAndJWS(
 export async function generateEmailCredentialObjectAndJWS(
   createEmailCredentialDto: CreateEmailCredentialDto,
   user: User,
+  credentialStatus?: CredentialStatusEntry,
 ) {
   const now = new Date();
   const end = new Date();
@@ -294,13 +311,14 @@ export async function generateEmailCredentialObjectAndJWS(
     '@context': ['https://www.w3.org/ns/credentials/v2'],
     id: `urn:uuid:${uuidv4()}`,
     type: ['VerifiableCredential', 'VerifiableAttestation', 'VerifiableEmail'],
-    issuer: `did:web:${credentialsHost}`,
+    issuer: PLATFORM_DID,
     validFrom: now.toISOString(),
     validUntil: end.toISOString(),
     credentialSubject: {
       id: resolveDidKey(user),
       email: createEmailCredentialDto.email,
     },
+    ...withCredentialStatus(credentialStatus),
     credentialSchema: [
       {
         id: 'https://github.com/CreatorCredentials/specifications/blob/main/json-schema/verification-credentials/email/schema.json',
@@ -323,7 +341,11 @@ export async function generateEmailCredentialObjectAndJWS(
  * Platform-issued attestation that the creator's Liccium account is linked.
  * The subject carries no personal data, so the presentation policy is public.
  */
-export function buildCreatorCredentialObject(user: User, verifiedBy: string) {
+export function buildCreatorCredentialObject(
+  user: User,
+  verifiedBy: string,
+  credentialStatus?: CredentialStatusEntry,
+) {
   const now = new Date();
   const end = new Date();
   end.setFullYear(end.getFullYear() + 3);
@@ -336,13 +358,14 @@ export function buildCreatorCredentialObject(user: User, verifiedBy: string) {
       'VerifiableAttestation',
       'VerifiableCreator',
     ],
-    issuer: `did:web:${credentialsHost}`,
+    issuer: PLATFORM_DID,
     validFrom: now.toISOString(),
     validUntil: end.toISOString(),
     credentialSubject: {
       id: resolveDidKey(user),
       verifiedBy,
     },
+    ...withCredentialStatus(credentialStatus),
     credentialSchema: [
       {
         id: 'https://raw.githubusercontent.com/CreatorCredentials/specifications/main/json-schema/verification-credentials/creator/schema.json',
@@ -360,8 +383,13 @@ export function buildCreatorCredentialObject(user: User, verifiedBy: string) {
 export async function generateCreatorCredentialObjectAndJWS(
   user: User,
   verifiedBy: string,
+  credentialStatus?: CredentialStatusEntry,
 ) {
-  const credentialObject = buildCreatorCredentialObject(user, verifiedBy);
+  const credentialObject = buildCreatorCredentialObject(
+    user,
+    verifiedBy,
+    credentialStatus,
+  );
   const jws = await signJWTWithX5c(credentialObject);
 
   return { credentialObject, jws };
@@ -370,6 +398,7 @@ export async function generateCreatorCredentialObjectAndJWS(
 export async function generateDomainCredentialObjectAndJWS(
   createDomainCredentialDto: CreateDomainCredentialDto,
   user: User,
+  credentialStatus?: CredentialStatusEntry,
 ) {
   const now = new Date();
   const end = new Date();
@@ -379,13 +408,14 @@ export async function generateDomainCredentialObjectAndJWS(
     '@context': ['https://www.w3.org/ns/credentials/v2'],
     id: `urn:uuid:${uuidv4()}`,
     type: ['VerifiableCredential', 'VerifiableAttestation', 'VerifiableDomain'],
-    issuer: `did:web:${credentialsHost}`,
+    issuer: PLATFORM_DID,
     validFrom: now.toISOString(),
     validUntil: end.toISOString(),
     credentialSubject: {
       id: resolveDidKey(user),
       domain: createDomainCredentialDto.domain,
     },
+    ...withCredentialStatus(credentialStatus),
     credentialSchema: [
       {
         id: 'https://github.com/CreatorCredentials/specifications/blob/main/json-schema/verification-credentials/domain/schema.json',
@@ -406,6 +436,7 @@ export async function generateDomainCredentialObjectAndJWS(
 
 export async function generateConnectCredentialObjectAndJWS(
   createConnectCredentialDto: CreateConnectCredentialDto,
+  credentialStatus?: CredentialStatusEntry,
 ) {
   const now = new Date();
   const end = new Date();
@@ -419,13 +450,14 @@ export async function generateConnectCredentialObjectAndJWS(
       'VerifiableAttestation',
       'VerifiableDidConnect',
     ],
-    issuer: `did:web:${credentialsHost}`,
+    issuer: PLATFORM_DID,
     validFrom: now.toISOString(),
     validUntil: end.toISOString(),
     credentialSubject: {
       id: createConnectCredentialDto.didKey,
       sameAs: createConnectCredentialDto.licciumDidKey,
     },
+    ...withCredentialStatus(credentialStatus),
     credentialSchema: [
       {
         id: 'https://github.com/CreatorCredentials/specifications/blob/main/json-schema/verification-credentials/email/schema.json',

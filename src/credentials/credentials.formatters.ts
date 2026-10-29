@@ -1,4 +1,5 @@
 import {
+  AdminCredential,
   ConnectCredential,
   CreatorCredential,
   DataSupplierCredential,
@@ -77,6 +78,41 @@ export function formatIssuedCredential(
       credential.issuerId,
     ),
     creator: formatCreatorIdentity(credential.user),
+  };
+}
+
+/**
+ * Shape of the admin routes. Expects what `formatIssuedCredential` expects
+ * plus `issuer` and `revokedBy`; `statusListCredentialUrl` is the URL of the
+ * platform's status list.
+ */
+export function formatAdminCredential(
+  credential: Credential,
+  statusListCredentialUrl: string,
+): AdminCredential {
+  return {
+    ...formatIssuedCredential(credential),
+    issuer: credential.issuer
+      ? {
+          id: credential.issuer.id,
+          name: credential.issuer.name ?? null,
+          domain: credential.issuer.domain ?? null,
+        }
+      : null,
+    revokedBy: credential.revokedBy
+      ? {
+          id: credential.revokedBy.id,
+          name: credential.revokedBy.name ?? null,
+          role: credential.revokedBy.clerkRole,
+        }
+      : null,
+    statusList:
+      credential.statusListIndex == null
+        ? null
+        : {
+            credential: statusListCredentialUrl,
+            index: credential.statusListIndex,
+          },
   };
 }
 

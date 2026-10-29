@@ -1,6 +1,7 @@
 import { CredentialType } from './CredentialType';
 import { CredentialVerificationStatus } from './CredentialVerificationStatus';
 import { ConnectionStatus } from 'src/connections/connection.entity';
+import { ClerkRole } from 'src/users/user.entity';
 
 /** Present on revoked credentials only; `revokedReason` only when the issuer gave one. */
 export type RevocationFields = {
@@ -179,4 +180,33 @@ export type IssuedCredential = VerifiedCredentialsUnion & {
   revokedReason: string | null;
   connectionStatus: ConnectionStatus | null;
   creator: IssuedCredentialCreator;
+};
+
+export type AdminCredentialIssuer = {
+  id: number;
+  name: string | null;
+  domain: string | null;
+};
+
+export type AdminCredentialRevoker = {
+  id: number;
+  name: string | null;
+  role: ClerkRole;
+};
+
+/** Where the credential lives in the platform's Bitstring Status List. */
+export type StatusListReference = {
+  credential: string;
+  index: number;
+};
+
+/**
+ * Item of GET admin/credentials: the issued shape plus the issuer (null for a
+ * self-issued credential), who revoked it and its status-list entry (null
+ * for credentials issued before the list existed).
+ */
+export type AdminCredential = IssuedCredential & {
+  issuer: AdminCredentialIssuer | null;
+  revokedBy: AdminCredentialRevoker | null;
+  statusList: StatusListReference | null;
 };

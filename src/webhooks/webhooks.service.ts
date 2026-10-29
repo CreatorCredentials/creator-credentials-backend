@@ -157,6 +157,7 @@ export class WebhooksService {
 
   private resolveRole(roleMetadata?: string): ClerkRole {
     if (roleMetadata === 'ISSUER') return ClerkRole.Issuer;
+    if (roleMetadata === 'ADMIN') return ClerkRole.Admin;
     return ClerkRole.Creator;
   }
 

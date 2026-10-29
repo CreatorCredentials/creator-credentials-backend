@@ -125,6 +125,7 @@ describe('NotificationsService', () => {
       creatorId: creator.id,
       credentialType: CredentialType.Member,
       reason: 'Membership ended',
+      revokedByRole: ClerkRole.Issuer,
     });
 
     expect(mailer.messages).toHaveLength(1);
@@ -137,6 +138,50 @@ describe('NotificationsService', () => {
       `${APP_BASE_URL}/creator/credentials`,
     );
     expect(mailer.messages[0].html).toContain('<a href=');
+  });
+
+  it('mails the creator and the issuer when the platform revoked', async () => {
+    await service.onCredentialRevoked({
+      credentialId: 1,
+      issuerId: issuer.id,
+      creatorId: creator.id,
+      credentialType: CredentialType.Member,
+      reason: 'Terms violated',
+      revokedByRole: ClerkRole.Admin,
+    });
+
+    expect(mailer.messages).toHaveLength(2);
+    expect(mailer.messages[0]).toMatchObject({
+      to: [CREATOR_EMAIL],
+      subject:
+        'Your Member credential was revoked by the Creator Credentials platform',
+    });
+    expect(mailer.messages[0].text).toContain('issued by Issuer Inc');
+    expect(mailer.messages[1]).toMatchObject({
+      to: [ISSUER_EMAIL],
+      subject: 'The Member credential you issued to Alice was revoked',
+    });
+    expect(mailer.messages[1].text).toContain('Reason: Terms violated');
+    expect(mailer.messages[1].text).toContain(
+      `${APP_BASE_URL}/issuer/credentials`,
+    );
+  });
+
+  it('tells only the creator when the platform revoked a self-issued credential', async () => {
+    await service.onCredentialRevoked({
+      credentialId: 1,
+      issuerId: null,
+      creatorId: creator.id,
+      credentialType: CredentialType.EMail,
+      reason: null,
+      revokedByRole: ClerkRole.Admin,
+    });
+
+    expect(mailer.messages).toHaveLength(1);
+    expect(mailer.messages[0].to).toEqual([CREATOR_EMAIL]);
+    expect(mailer.messages[0].text).toContain(
+      'The Creator Credentials platform revoked your E-Mail credential on Creator Credentials.',
+    );
   });
 
   it('skips the message when no recipient can be resolved', async () => {
@@ -183,6 +228,7 @@ describe('NotificationsService', () => {
         creatorId: creator.id,
         credentialType: CredentialType.Member,
         reason: null,
+        revokedByRole: ClerkRole.Issuer,
       }),
     ).resolves.toBeUndefined();
   });

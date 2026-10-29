@@ -13,8 +13,6 @@ import {
   UnauthorizedException,
   HttpException,
   HttpStatus,
-  RawBodyRequest,
-  Req,
   HttpCode,
   ParseEnumPipe,
   ValidationPipe,
@@ -34,16 +32,11 @@ import {
 } from './credentials.formatters';
 import { CredentialType } from 'src/shared/typings/CredentialType';
 import { UsersService } from 'src/users/users.service';
-import * as jwt from 'jsonwebtoken';
-import axios from 'axios';
-import { TimeoutError, catchError, firstValueFrom } from 'rxjs';
+import { catchError, firstValueFrom } from 'rxjs';
 import { HttpService } from '@nestjs/axios';
-import { promisify } from 'util';
 import { JwtService } from '@nestjs/jwt';
 import { KeyObject, createPublicKey } from 'crypto';
 import { KeypairChallengeService } from 'src/keypair-challenge/keypair-challenge.service';
-
-const verifyAsync = promisify(jwt.verify);
 
 @Controller('credentials')
 export class CredentialsController {
@@ -61,6 +54,9 @@ export class CredentialsController {
     @Body() createCredentialDto: CreateEmailCredentialDto,
     @GetUser() user: User,
   ) {
+    if (user.clerkRole === ClerkRole.Admin) {
+      throw new NotFoundException('This api is not for admins.');
+    }
     return this.credentialsService.createEmailCredential(
       createCredentialDto,
       user,
@@ -245,7 +241,9 @@ export class CredentialsController {
     const issuerValue = issuer.externalCertPem
       ? resolveIssuerDidFromCert(issuer.externalCertPem)
       : issuer.didWeb ||
-        (issuer.domain ? `did:web:${issuer.domain}` : `issuer-${issuer.id}.cert-verified`);
+        (issuer.domain
+          ? `did:web:${issuer.domain}`
+          : `issuer-${issuer.id}.cert-verified`);
 
     if (credentialType === CredentialType.DataSupplier) {
       if (!user.organizationName) {
@@ -499,17 +497,27 @@ export class CredentialsController {
       throw new NotFoundException('This api is only for Issuers.');
     }
 
-    const credentialType = await this.credentialsService.getPendingCredentialType(
-      credentialId,
-      user.id,
-    );
+    const credentialType =
+      await this.credentialsService.getPendingCredentialType(
+        credentialId,
+        user.id,
+      );
 
     if (credentialType === CredentialType.DataSupplier) {
-      return this.credentialsService.initiateDataSupplierCredentialAcceptance(user, credentialId);
+      return this.credentialsService.initiateDataSupplierCredentialAcceptance(
+        user,
+        credentialId,
+      );
     } else if (credentialType === CredentialType.LicciumDataSupplier) {
-      return this.credentialsService.initiateLicciumDataSupplierCredentialAcceptance(user, credentialId);
+      return this.credentialsService.initiateLicciumDataSupplierCredentialAcceptance(
+        user,
+        credentialId,
+      );
     } else if (credentialType === CredentialType.Member) {
-      return this.credentialsService.initiateMembershipCredentialAcceptance(user, credentialId);
+      return this.credentialsService.initiateMembershipCredentialAcceptance(
+        user,
+        credentialId,
+      );
     } else {
       throw new NotFoundException('Pending credential not found.');
     }
@@ -526,17 +534,30 @@ export class CredentialsController {
       throw new NotFoundException('This api is only for Issuers.');
     }
 
-    const credentialType = await this.credentialsService.getPendingCredentialType(
-      credentialId,
-      user.id,
-    );
+    const credentialType =
+      await this.credentialsService.getPendingCredentialType(
+        credentialId,
+        user.id,
+      );
 
     if (credentialType === CredentialType.DataSupplier) {
-      return this.credentialsService.verifyDataSupplierCredentialAcceptance(user, credentialId, signature);
+      return this.credentialsService.verifyDataSupplierCredentialAcceptance(
+        user,
+        credentialId,
+        signature,
+      );
     } else if (credentialType === CredentialType.LicciumDataSupplier) {
-      return this.credentialsService.verifyLicciumDataSupplierCredentialAcceptance(user, credentialId, signature);
+      return this.credentialsService.verifyLicciumDataSupplierCredentialAcceptance(
+        user,
+        credentialId,
+        signature,
+      );
     } else if (credentialType === CredentialType.Member) {
-      return this.credentialsService.verifyMembershipCredentialAcceptance(user, credentialId, signature);
+      return this.credentialsService.verifyMembershipCredentialAcceptance(
+        user,
+        credentialId,
+        signature,
+      );
     } else {
       throw new NotFoundException('Pending credential not found.');
     }

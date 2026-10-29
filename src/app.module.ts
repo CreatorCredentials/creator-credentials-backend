@@ -25,6 +25,9 @@ import { CertChallengeModule } from './cert-challenge/cert-challenge.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { NotificationsModule } from './notifications/notifications.module';
+import { AdminModule } from './admin/admin.module';
+import { StatusListModule } from './status-list/status-list.module';
+import { VerificationModule } from './verification/verification.module';
 
 @Module({
   imports: [
@@ -56,6 +59,9 @@ import { NotificationsModule } from './notifications/notifications.module';
     CertChallengeModule,
     WebhooksModule,
     NotificationsModule,
+    AdminModule,
+    StatusListModule,
+    VerificationModule,
   ],
   controllers: [AppController],
   providers: [AppService],
@@ -81,6 +87,8 @@ export class AppModule implements NestModule {
         'v1/mocks',
         'v1/mocks/(.*)',
         'v1/credentials/export',
+        'v1/credentials/verify',
+        'v1/status-lists/(.*)',
         'v1/webhooks/(.*)',
       )
       .forRoutes('*');

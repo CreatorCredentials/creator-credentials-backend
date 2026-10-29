@@ -184,6 +184,9 @@ export class UsersController {
     @GetUser() user: User,
     @Param('issuerId', ParseIntPipe) issuerId: number,
   ) {
+    if (user.clerkRole !== ClerkRole.Creator) {
+      throw new NotFoundException('This api is only for creators.');
+    }
     await this.usersService.createConnection(issuerId, user);
   }
 
