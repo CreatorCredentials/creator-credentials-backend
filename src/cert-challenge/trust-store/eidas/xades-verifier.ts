@@ -157,7 +157,7 @@ export class XadesVerifier {
     }
 
     try {
-      return new X509Certificate(der);
+      return new X509Certificate(Buffer.from(der));
     } catch (e) {
       throw new Error(
         `XAdES verification failed: signing cert could not be parsed as X.509: ${describe(e)}`,

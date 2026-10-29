@@ -58,7 +58,7 @@ export class TlLoaderService {
       for (const der of service.caCertsDer) {
         let cert: X509Certificate;
         try {
-          cert = new X509Certificate(der);
+          cert = new X509Certificate(Buffer.from(der));
         } catch {
           continue;
         }
