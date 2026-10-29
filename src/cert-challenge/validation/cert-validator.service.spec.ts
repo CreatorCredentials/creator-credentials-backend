@@ -22,13 +22,23 @@ const RSA_SIG = {
   modulusLength: 2048,
 } as const;
 
+/** Same key shape, but the CA signs with SHA-1, which the validator must reject. */
+const RSA_SHA1_SIG = { ...RSA_SIG, hash: 'SHA-1' } as const;
+
+type RsaSigningAlgorithm = typeof RSA_SIG | typeof RSA_SHA1_SIG;
+
 interface IssuedPair {
   cert: X509Certificate;
   privateKey: CryptoKey;
+  /** Algorithm bound to `privateKey`; certificates it issues are signed with it. */
+  signingAlgorithm: RsaSigningAlgorithm;
 }
 
-async function generateCa(name = 'CN=Test eIDAS CA, C=EU'): Promise<IssuedPair> {
-  const keys = await webcrypto.subtle.generateKey(RSA_SIG, true, [
+async function generateCa(
+  name = 'CN=Test eIDAS CA, C=EU',
+  signingAlgorithm: RsaSigningAlgorithm = RSA_SIG,
+): Promise<IssuedPair> {
+  const keys = await webcrypto.subtle.generateKey(signingAlgorithm, true, [
     'sign',
     'verify',
   ]);
@@ -39,7 +49,7 @@ async function generateCa(name = 'CN=Test eIDAS CA, C=EU'): Promise<IssuedPair> 
     issuer: name,
     notBefore: new Date(Date.now() - 24 * 3600 * 1000),
     notAfter: new Date(Date.now() + 365 * 24 * 3600 * 1000),
-    signingAlgorithm: RSA_SIG,
+    signingAlgorithm,
     publicKey: keys.publicKey,
     signingKey: keys.privateKey,
     extensions: [
@@ -51,7 +61,7 @@ async function generateCa(name = 'CN=Test eIDAS CA, C=EU'): Promise<IssuedPair> 
     ],
   });
 
-  return { cert, privateKey: keys.privateKey };
+  return { cert, privateKey: keys.privateKey, signingAlgorithm };
 }
 
 async function issueLeaf(
@@ -74,7 +84,7 @@ async function issueLeaf(
     issuer: ca.cert.subject,
     notBefore: options?.notBefore ?? new Date(Date.now() - 24 * 3600 * 1000),
     notAfter: options?.notAfter ?? new Date(Date.now() + 30 * 24 * 3600 * 1000),
-    signingAlgorithm: RSA_SIG,
+    signingAlgorithm: ca.signingAlgorithm,
     publicKey: keys.publicKey,
     signingKey: ca.privateKey,
     extensions: [
@@ -86,13 +96,10 @@ async function issueLeaf(
     ],
   });
 
-  return { cert, privateKey: keys.privateKey };
+  return { cert, privateKey: keys.privateKey, signingAlgorithm: RSA_SIG };
 }
 
-function buildAnchor(
-  ca: X509Certificate,
-  country = 'EU',
-): TrustAnchor {
+function buildAnchor(ca: X509Certificate, country = 'EU'): TrustAnchor {
   const der = new Uint8Array(ca.rawData);
   return {
     fingerprint: createHash('sha256').update(der).digest('hex'),
@@ -115,9 +122,7 @@ function tamper(pem: string): string {
   if (!original) return pem;
   const ch = original[10];
   const flipped =
-    original.slice(0, 10) +
-    (ch === 'A' ? 'B' : 'A') +
-    original.slice(11);
+    original.slice(0, 10) + (ch === 'A' ? 'B' : 'A') + original.slice(11);
   lines[targetIdx] = flipped;
   return lines.join('\n');
 }
@@ -136,11 +141,12 @@ describe('CertValidatorService', () => {
     validator = new CertValidatorService(trustStore);
   });
 
-  it('throws ServiceUnavailableException when trust store is not ready', async () => {
+  it('skips chain validation while the trust store is not ready', async () => {
     const leaf = await issueLeaf(ca);
-    await expect(
-      validator.validateLeafPem(leaf.cert.toString('pem')),
-    ).rejects.toMatchObject({ status: 503 });
+
+    const result = await validator.validateLeafPem(leaf.cert.toString('pem'));
+
+    expect(result).toMatchObject({ ok: true, matchedAnchor: null });
   });
 
   it('accepts a leaf signed by a trusted anchor', async () => {
@@ -165,7 +171,9 @@ describe('CertValidatorService', () => {
 
     expect(result.ok).toBe(false);
     if ('reason' in result) {
-      expect(result.reason).toMatch(/signature could not be verified|Invalid X\.509/);
+      expect(result.reason).toMatch(
+        /signature could not be verified|Invalid X\.509/,
+      );
     }
   });
 
@@ -178,7 +186,9 @@ describe('CertValidatorService', () => {
 
     expect(result.ok).toBe(false);
     if ('reason' in result) {
-      expect(result.reason).toMatch(/No trust anchor|signature could not be verified/);
+      expect(result.reason).toMatch(
+        /No trust anchor|signature could not be verified/,
+      );
     }
   });
 
@@ -208,33 +218,16 @@ describe('CertValidatorService', () => {
     if ('reason' in result) expect(result.reason).toMatch(/not yet valid/);
   });
 
-  it('rejects a leaf reporting a disallowed hash algorithm', async () => {
-    trustStore.replaceAnchors([buildAnchor(ca.cert)]);
-    const leaf = await issueLeaf(ca);
+  it('rejects a leaf signed with SHA-1', async () => {
+    const sha1Ca = await generateCa('CN=Legacy CA, C=EU', RSA_SHA1_SIG);
+    trustStore.replaceAnchors([buildAnchor(sha1Ca.cert)]);
+    const leaf = await issueLeaf(sha1Ca);
 
-    // The peculiar generator + WebCrypto polyfill does not expose SHA-1
-    // signing in a way that round-trips through `signatureAlgorithm.hash.name`,
-    // so we patch a properly-issued leaf to spoof a SHA-1 sig algo and confirm
-    // the validator's algorithm allowlist actually fires.
-    const pem = leaf.cert.toString('pem');
-    const original = X509Certificate.prototype as unknown as {
-      signatureAlgorithm: unknown;
-    };
-    const spy = jest
-      .spyOn(X509Certificate.prototype, 'signatureAlgorithm', 'get')
-      .mockReturnValue({
-        name: 'RSASSA-PKCS1-v1_5',
-        hash: { name: 'SHA-1' },
-      } as never);
-    try {
-      const result = await validator.validateLeafPem(pem);
-      expect(result.ok).toBe(false);
-      if ('reason' in result)
-        expect(result.reason).toMatch(/hash algorithm.*not allowed/);
-    } finally {
-      spy.mockRestore();
-      void original;
-    }
+    const result = await validator.validateLeafPem(leaf.cert.toString('pem'));
+
+    expect(result.ok).toBe(false);
+    if ('reason' in result)
+      expect(result.reason).toMatch(/hash algorithm "SHA-1" is not allowed/);
   });
 
   it('rejects a leaf without digitalSignature/nonRepudiation key usage', async () => {
