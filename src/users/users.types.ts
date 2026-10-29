@@ -1,5 +1,3 @@
-import { DidWebWellKnown } from './user.entity';
-
 export type CreateTxtRecordForDomainResponse = {
   txtRecord: string;
 };

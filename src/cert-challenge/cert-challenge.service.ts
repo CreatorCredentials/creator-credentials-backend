@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  GoneException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -208,10 +207,7 @@ export class CertChallengeService {
   }
 
   private getCommandsForStep(challenge: CertChallenge): string[] {
-    if (
-      challenge.status === 'challenge_issued' &&
-      challenge.challengeMessage
-    ) {
+    if (challenge.status === 'challenge_issued' && challenge.challengeMessage) {
       return this.getSigningCommands(challenge.challengeMessage);
     }
     return [];

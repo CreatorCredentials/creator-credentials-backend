@@ -13,7 +13,8 @@ const CREDENTIAL_TYPE_TO_TEMPLATE_TYPE: Partial<
 > = {
   [CredentialType.Member]: CredentialTemplateType.Member,
   [CredentialType.DataSupplier]: CredentialTemplateType.ExternalKeypair,
-  [CredentialType.LicciumDataSupplier]: CredentialTemplateType.LicciumExternalKeypair,
+  [CredentialType.LicciumDataSupplier]:
+    CredentialTemplateType.LicciumExternalKeypair,
   [CredentialType.Student]: CredentialTemplateType.Student,
 };
 
@@ -31,7 +32,9 @@ export class TemplatesController {
       throw new NotFoundException('This api is only for Creator.');
     }
 
-    const issuers = await this.usersService.getAllConnectedIssuersOfCreator(user);
+    const issuers = await this.usersService.getAllConnectedIssuersOfCreator(
+      user,
+    );
 
     // Collect the union of all credential types offered by connected issuers,
     // then map to the corresponding template type (deduped).

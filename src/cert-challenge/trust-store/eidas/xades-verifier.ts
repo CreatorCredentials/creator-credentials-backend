@@ -92,7 +92,9 @@ export class XadesVerifier {
       signedXml.LoadXml(signatureNode);
     } catch (e) {
       throw new Error(
-        `XAdES verification failed: malformed Signature element: ${describe(e)}`,
+        `XAdES verification failed: malformed Signature element: ${describe(
+          e,
+        )}`,
       );
     }
 
@@ -100,9 +102,7 @@ export class XadesVerifier {
     try {
       signatureValid = await signedXml.Verify();
     } catch (e) {
-      throw new Error(
-        `XAdES verification failed: ${describe(e)}`,
-      );
+      throw new Error(`XAdES verification failed: ${describe(e)}`);
     }
     if (!signatureValid) {
       throw new Error(
@@ -152,7 +152,9 @@ export class XadesVerifier {
       der = Uint8Array.from(Buffer.from(base64, 'base64'));
     } catch (e) {
       throw new Error(
-        `XAdES verification failed: signing cert is not valid base64: ${describe(e)}`,
+        `XAdES verification failed: signing cert is not valid base64: ${describe(
+          e,
+        )}`,
       );
     }
 
@@ -160,7 +162,9 @@ export class XadesVerifier {
       return new X509Certificate(Buffer.from(der));
     } catch (e) {
       throw new Error(
-        `XAdES verification failed: signing cert could not be parsed as X.509: ${describe(e)}`,
+        `XAdES verification failed: signing cert could not be parsed as X.509: ${describe(
+          e,
+        )}`,
       );
     }
   }

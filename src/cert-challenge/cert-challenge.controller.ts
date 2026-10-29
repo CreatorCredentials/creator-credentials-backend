@@ -36,10 +36,7 @@ export class CertChallengeController {
 
   @UseGuards(AuthGuard)
   @Post('verify-signature')
-  verifySignature(
-    @GetUser() user: User,
-    @Body('signature') signature: string,
-  ) {
+  verifySignature(@GetUser() user: User, @Body('signature') signature: string) {
     return this.certChallengeService.verifySignature(user, signature);
   }
 

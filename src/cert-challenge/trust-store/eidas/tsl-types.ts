@@ -46,8 +46,7 @@ export interface CaServiceEntry {
   caCertsDer: Uint8Array[];
 }
 
-export const SVC_TYPE_CA_QC =
-  'http://uri.etsi.org/TrstSvc/Svctype/CA/QC';
+export const SVC_TYPE_CA_QC = 'http://uri.etsi.org/TrstSvc/Svctype/CA/QC';
 
 export const SVC_STATUS_GRANTED =
   'http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted';

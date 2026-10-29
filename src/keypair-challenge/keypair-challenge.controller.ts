@@ -65,10 +65,7 @@ export class KeypairChallengeController {
 
   @UseGuards(AuthGuard)
   @Post('verify-signature')
-  verifySignature(
-    @GetUser() user: User,
-    @Body('signature') signature: string,
-  ) {
+  verifySignature(@GetUser() user: User, @Body('signature') signature: string) {
     return this.keypairChallengeService.verifySignature(user, signature);
   }
 
@@ -86,10 +83,7 @@ export class KeypairChallengeController {
 
   @UseGuards(AuthGuard)
   @Patch('active-source')
-  updateActiveSource(
-    @GetUser() user: User,
-    @Body('source') source: 'platform' | 'external',
-  ) {
-    return this.keypairChallengeService.updateActiveSource(user, source);
+  updateActiveSource(@GetUser() user: User) {
+    return this.keypairChallengeService.updateActiveSource(user);
   }
 }

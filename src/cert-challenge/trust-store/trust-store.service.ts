@@ -1,4 +1,8 @@
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { X509Certificate } from '@peculiar/x509';
 import type { TrustAnchor, TrustStoreState } from './types';
 

@@ -39,9 +39,7 @@ export function parseLotlCountryPointers(doc: Document): CountryTslPointer[] {
     );
     if (mimeType !== 'application/vnd.etsi.tsl+xml') continue;
 
-    const tslLocation = textOf(
-      select('./tsl:TSLLocation', pointer),
-    );
+    const tslLocation = textOf(select('./tsl:TSLLocation', pointer));
     if (!tslLocation) continue;
 
     const country = textOf(

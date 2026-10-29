@@ -7,7 +7,9 @@ import { UsersService } from '../users.service';
 export class AuthGuard implements CanActivate {
   constructor(private usersService: UsersService) {}
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest<WithAuthProp<Request> & { user?: unknown }>();
+    const request = context
+      .switchToHttp()
+      .getRequest<WithAuthProp<Request> & { user?: unknown }>();
     const userId = request.auth?.userId;
     if (!userId) return false;
 

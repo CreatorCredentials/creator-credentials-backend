@@ -28,9 +28,7 @@ export class TlLoaderService {
     try {
       xml = await this.fetchXml(pointer.tslLocation);
     } catch (e) {
-      this.logger.warn(
-        `[${pointer.country}] TL fetch failed: ${describe(e)}`,
-      );
+      this.logger.warn(`[${pointer.country}] TL fetch failed: ${describe(e)}`);
       return [];
     }
 

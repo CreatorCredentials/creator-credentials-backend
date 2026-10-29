@@ -41,10 +41,15 @@ export class LotlPivotBootstrap {
       const content = await fs.readFile(filePath, 'utf8');
       for (const cert of parsePemCertificates(content)) {
         const der = cert.rawData;
-        const fp = createHash('sha256').update(new Uint8Array(der)).digest('hex');
+        const fp = createHash('sha256')
+          .update(new Uint8Array(der))
+          .digest('hex');
         fingerprints.add(fp);
         this.logger.log(
-          `LOTL signer anchor loaded: ${cert.subject} (sha256=${fp.slice(0, 16)}…)`,
+          `LOTL signer anchor loaded: ${cert.subject} (sha256=${fp.slice(
+            0,
+            16,
+          )}…)`,
         );
       }
     }

@@ -1,15 +1,3 @@
-import {
-  IsIn,
-  IsMimeType,
-  IsNumber,
-  IsObject,
-  IsOptional,
-  IsString,
-  MaxLength,
-  MinLength,
-} from 'class-validator';
-import { CertificateConfigOptions } from '../certificates.util';
-
 export class CreateKeyAndCertificateDto {
   subject: string;
   countryName: string;

@@ -67,12 +67,17 @@ function modpow(base: bigint, exp: bigint, mod: bigint): bigint {
  * (0x04 || x || y) using the P-256 curve equation: y² = x³ + ax + b (mod p).
  */
 function decompressP256Point(compressed: Uint8Array): Uint8Array {
-  if (compressed.length !== 33 || (compressed[0] !== 0x02 && compressed[0] !== 0x03)) {
+  if (
+    compressed.length !== 33 ||
+    (compressed[0] !== 0x02 && compressed[0] !== 0x03)
+  ) {
     throw new Error('Invalid compressed P-256 point');
   }
   const prefix = compressed[0];
   const x = BigInt('0x' + Buffer.from(compressed.slice(1)).toString('hex'));
-  const rhs = ((modpow(x, 3n, P256_P) + P256_A * x + P256_B) % P256_P + P256_P) % P256_P;
+  const rhs =
+    (((modpow(x, 3n, P256_P) + P256_A * x + P256_B) % P256_P) + P256_P) %
+    P256_P;
   let y = modpow(rhs, (P256_P + 1n) / 4n, P256_P);
   const yIsEven = (y & 1n) === 0n;
   if ((prefix === 0x02) !== yIsEven) y = P256_P - y;
@@ -103,9 +108,7 @@ export function publicKeyPemToDid(publicKeyPem: string): string {
   const uncompressed = new Uint8Array(spkiDer).slice(-65);
 
   if (uncompressed[0] !== 0x04) {
-    throw new Error(
-      'Expected uncompressed EC point (0x04 prefix) in SPKI DER',
-    );
+    throw new Error('Expected uncompressed EC point (0x04 prefix) in SPKI DER');
   }
 
   const x = uncompressed.slice(1, 33);
@@ -130,9 +133,7 @@ export function publicKeyPemToDid(publicKeyPem: string): string {
  */
 export function didToPublicKeyPem(did: string): string {
   if (!did.startsWith('did:key:z')) {
-    throw new Error(
-      "Only did:key with base58btc multibase ('z') is supported",
-    );
+    throw new Error("Only did:key with base58btc multibase ('z') is supported");
   }
 
   const decoded = base58Decode(did.slice('did:key:z'.length));

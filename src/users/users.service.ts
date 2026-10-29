@@ -22,12 +22,8 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { domainVerificationPrefix } from 'src/credentials/credentials.constants';
 import { HttpService } from '@nestjs/axios';
 import * as https from 'https';
-import { TimeoutError, catchError, map, timeout } from 'rxjs';
-import { LicciumIssuer } from './users.constants';
-import {
-  Issuer,
-  IssuerWithVerifiedCredentials,
-} from 'src/shared/typings/Issuer';
+import { TimeoutError, catchError, timeout } from 'rxjs';
+import { IssuerWithVerifiedCredentials } from 'src/shared/typings/Issuer';
 import { IssuerConnectionStatus } from 'src/shared/typings/IssuerConnectionStatus';
 import { CredentialType } from 'src/shared/typings/CredentialType';
 import {
@@ -43,7 +39,6 @@ import { formatCredentialForUnion } from 'src/credentials/credentials.formatters
 import {
   checkSignatureAndThrow,
   generateDomainRecord,
-  generateAlfaNumericIdentifier,
   generateWellKnownForDidWeb,
 } from 'src/shared/helpers';
 import { mapIssuerConnectionToCreator } from './users.formatters';
@@ -160,7 +155,10 @@ export class UsersService {
     newUser.termsLink = createUserDto.termsLink ?? null;
     newUser.nonce = this.generateNonce();
 
-    const result = await this.generateCertAndDidKey(newUser, createUserDto.email);
+    const result = await this.generateCertAndDidKey(
+      newUser,
+      createUserDto.email,
+    );
     newUser.certificate509Buffer = result.certificateBuffer;
     newUser.certificatePrivateKey = result.privateKeyBuffer;
     newUser.didKey = result.didKey;
@@ -286,7 +284,7 @@ export class UsersService {
         ? ConnectionStatus.Accepted
         : ConnectionStatus.Requested;
 
-        console.log('getAllCreatorsOfIssuer getAllCreatorsOfIssuer', filterStatus);
+    console.log('getAllCreatorsOfIssuer getAllCreatorsOfIssuer', filterStatus);
     console.log('getAllCreatorsOfIssuer user', user);
     console.log('getAllCreatorsOfIssuer user.id', user.id);
 
@@ -319,7 +317,7 @@ export class UsersService {
       clerkImageUrlMap[u.id] = clerkImageUrls[i];
     });
 
-     const result = connections.map((connection) =>
+    const result = connections.map((connection) =>
       mapIssuerConnectionToCreator(
         connection,
         usersMap[connection.creatorId],
@@ -373,7 +371,11 @@ export class UsersService {
     return issuers;
   }
 
-  private mapUserToIssuerResponse(issuer: User, creator: User, clerkImageUrl = '') {
+  private mapUserToIssuerResponse(
+    issuer: User,
+    creator: User,
+    clerkImageUrl = '',
+  ) {
     const statusesToCheck = [
       ConnectionStatus.Accepted,
       ConnectionStatus.Requested,
@@ -428,8 +430,6 @@ export class UsersService {
         })) as VerifiedCredentialsUnion[],
     };
   }
-
-
 
   async updateNonce(clerkId: string): Promise<User> {
     const user = await this.userRepository.findOneBy({ clerkId });
@@ -800,7 +800,12 @@ export class UsersService {
   async updateUserProfile(
     user: User,
     payload: { description?: string; domain?: string },
-  ): Promise<{ companyName: string; description: string; domain: string; email: string }> {
+  ): Promise<{
+    companyName: string;
+    description: string;
+    domain: string;
+    email: string;
+  }> {
     const updateData: Partial<User> = {};
 
     if (payload.description !== undefined) {
@@ -829,7 +834,9 @@ export class UsersService {
       }
     }
 
-    const updated = await this.userRepository.findOne({ where: { id: user.id } });
+    const updated = await this.userRepository.findOne({
+      where: { id: user.id },
+    });
     return {
       companyName: updated.name,
       description: updated.description,
@@ -838,7 +845,10 @@ export class UsersService {
     };
   }
 
-  async setOrganizationName(user: User, organizationName: string): Promise<User> {
+  async setOrganizationName(
+    user: User,
+    organizationName: string,
+  ): Promise<User> {
     if (user.organizationName !== null && user.organizationName !== undefined) {
       throw new HttpException(
         'Organization name is already set and cannot be changed. To update it please contact info@liccium.com.',
@@ -854,7 +864,10 @@ export class UsersService {
       );
     }
 
-    await this.userRepository.update({ id: user.id }, { organizationName: trimmed });
+    await this.userRepository.update(
+      { id: user.id },
+      { organizationName: trimmed },
+    );
 
     return this.userRepository.findOne({ where: { id: user.id } });
   }

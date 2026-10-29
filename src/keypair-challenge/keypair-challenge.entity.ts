@@ -59,7 +59,11 @@ export class KeypairChallenge extends BaseEntity {
   @Column({ name: 'consumed_at', type: 'timestamp', nullable: true })
   consumedAt: Date;
 
-  @Column({ name: 'consumed_by_credential_id', type: 'integer', nullable: true })
+  @Column({
+    name: 'consumed_by_credential_id',
+    type: 'integer',
+    nullable: true,
+  })
   consumedByCredentialId: number;
 
   @CreateDateColumn({ name: 'created_at' })

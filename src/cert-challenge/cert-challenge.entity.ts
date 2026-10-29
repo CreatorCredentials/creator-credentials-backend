@@ -34,7 +34,12 @@ export class CertChallenge extends BaseEntity {
   @Column({ name: 'cert_pem', type: 'text', nullable: true })
   certPem: string;
 
-  @Column({ name: 'cert_fingerprint', type: 'varchar', length: 64, nullable: true })
+  @Column({
+    name: 'cert_fingerprint',
+    type: 'varchar',
+    length: 64,
+    nullable: true,
+  })
   certFingerprint: string;
 
   @Column({ name: 'challenge_message', type: 'text', nullable: true })

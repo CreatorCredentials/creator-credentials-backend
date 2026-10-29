@@ -224,7 +224,7 @@ export class KeypairChallengeService {
     return { publicKeyPem: didToPublicKeyPem(did) };
   }
 
-  async updateActiveSource(user: User, _source: 'platform' | 'external') {
+  async updateActiveSource(user: User) {
     // The active-source toggle was meaningful when we kept a long-lived
     // external did:key on the user. With per-credential challenges the
     // source is determined per-request automatically, so this endpoint
@@ -260,7 +260,10 @@ export class KeypairChallengeService {
     ];
   }
 
-  private getSigningCommands(challengeMessage: string, prefix?: string): string[] {
+  private getSigningCommands(
+    challengeMessage: string,
+    prefix?: string,
+  ): string[] {
     const { privateKey } = this.buildKeyFileNames(prefix);
     return [
       `SIG=$(echo -n "${challengeMessage}" | openssl dgst -sha256 -sign ${privateKey} | base64) && echo "$SIG" && echo "$SIG" | pbcopy`,
@@ -269,10 +272,7 @@ export class KeypairChallengeService {
 
   private getCommandsForStep(challenge: KeypairChallenge): string[] {
     if (challenge.status === 'initiated') return this.getGenerationCommands();
-    if (
-      challenge.status === 'challenge_issued' &&
-      challenge.challengeMessage
-    ) {
+    if (challenge.status === 'challenge_issued' && challenge.challengeMessage) {
       return this.getSigningCommands(challenge.challengeMessage);
     }
     return [];

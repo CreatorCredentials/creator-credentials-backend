@@ -1,4 +1,3 @@
-import { MOCK_ISSUER_CREDENTIALS } from 'src/mocks/mocks.constants';
 import { CredentialType } from 'src/shared/typings/CredentialType';
 import { CredentialVerificationStatus } from 'src/shared/typings/CredentialVerificationStatus';
 import { MembershipCredential } from 'src/shared/typings/Credentials';

@@ -98,7 +98,10 @@ export class CertValidatorService {
         });
       } catch (e) {
         this.logger.debug(
-          `verify() against anchor ${anchor.fingerprint.slice(0, 16)}… threw: ${describe(e)}`,
+          `verify() against anchor ${anchor.fingerprint.slice(
+            0,
+            16,
+          )}… threw: ${describe(e)}`,
         );
         continue;
       }
@@ -139,19 +142,26 @@ export class CertValidatorService {
   }
 
   private checkAlgorithms(cert: X509Certificate): string | null {
-    const sigAlgo = (cert.signatureAlgorithm as { name?: string; hash?: { name?: string } }) ?? {};
+    const sigAlgo =
+      (cert.signatureAlgorithm as {
+        name?: string;
+        hash?: { name?: string };
+      }) ?? {};
     const sigAlgoName = sigAlgo.name ?? '';
     const sigAlgoHash = sigAlgo.hash?.name ?? '';
 
     if (!ALLOWED_HASHES.has(sigAlgoHash)) {
-      return `Signature hash algorithm "${sigAlgoHash || 'unknown'}" is not allowed`;
+      return `Signature hash algorithm "${
+        sigAlgoHash || 'unknown'
+      }" is not allowed`;
     }
 
-    const pubAlgo = (cert.publicKey.algorithm as {
-      name?: string;
-      modulusLength?: number;
-      namedCurve?: string;
-    }) ?? {};
+    const pubAlgo =
+      (cert.publicKey.algorithm as {
+        name?: string;
+        modulusLength?: number;
+        namedCurve?: string;
+      }) ?? {};
     const pubAlgoName = pubAlgo.name ?? '';
 
     if (pubAlgoName === 'RSASSA-PKCS1-v1_5' || pubAlgoName === 'RSA-PSS') {
@@ -159,7 +169,9 @@ export class CertValidatorService {
         typeof pubAlgo.modulusLength !== 'number' ||
         pubAlgo.modulusLength < MIN_RSA_BITS
       ) {
-        return `RSA public key is too short (${pubAlgo.modulusLength ?? '?'} bits, minimum ${MIN_RSA_BITS})`;
+        return `RSA public key is too short (${
+          pubAlgo.modulusLength ?? '?'
+        } bits, minimum ${MIN_RSA_BITS})`;
       }
       return null;
     }

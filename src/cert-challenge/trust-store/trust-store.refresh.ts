@@ -23,9 +23,7 @@ export class TrustStoreRefreshService implements OnApplicationBootstrap {
     // store starts in `pending` state, so submitCert is fail-closed until
     // this completes.
     void this.refresh().catch((e) => {
-      this.logger.error(
-        `Initial trust store refresh failed: ${describe(e)}`,
-      );
+      this.logger.error(`Initial trust store refresh failed: ${describe(e)}`);
     });
   }
 
