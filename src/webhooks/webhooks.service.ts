@@ -161,8 +161,16 @@ export class WebhooksService {
     return ClerkRole.Creator;
   }
 
+  /**
+   * `public_metadata` is written only through Clerk's backend API, so it is
+   * trusted. `unsafe_metadata` is set by the browser during sign-up (the
+   * issuer/creator choice) and must never grant the admin role.
+   */
   private resolveRoleMetadata(data: ClerkUserEventData): string | undefined {
-    return data.public_metadata?.role ?? data.unsafe_metadata?.role;
+    const trusted = data.public_metadata?.role;
+    if (trusted) return trusted;
+    const selfDeclared = data.unsafe_metadata?.role;
+    return selfDeclared === 'ADMIN' ? undefined : selfDeclared;
   }
 
   private resolveDescriptionMetadata(
