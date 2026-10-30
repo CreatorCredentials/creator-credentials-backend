@@ -500,6 +500,9 @@ function derToBase64(derBuffer) {
 /** Extra JOSE header members, e.g. `typ: 'vc+jwt'` for credentials served as `application/vc+jwt`. */
 export type JwsHeaderExtras = { typ?: string };
 
+/** DER certificate that pairs with `HALCOM_CERT_PRIVATE_KEY`; overridable for tests. */
+const PLATFORM_CERT_DER_PATH = './certificates/LICCIUM.der';
+
 // Function to sign JWT with x5c header claim
 // If issuerCertPem is provided it is used in x5c instead of the platform cert
 export async function signJWTWithX5c(
@@ -521,7 +524,9 @@ export async function signJWTWithX5c(
         .replace(/-----END CERTIFICATE-----/, '')
         .replace(/\s/g, '');
     } else {
-      const certDER = await loadDerFile('./certificates/LICCIUM.der');
+      const certDER = await loadDerFile(
+        process.env.HALCOM_CERT_DER_PATH || PLATFORM_CERT_DER_PATH,
+      );
       certB64 = derToBase64(certDER);
     }
 

@@ -1,4 +1,3 @@
-import { readFileSync } from 'fs';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Credential } from 'src/credentials/credential.entity';
@@ -14,11 +13,14 @@ import {
   STATUS_LIST_SIZE,
 } from './status-list.constants';
 import { StatusListService } from './status-list.service';
+import {
+  EphemeralPlatformSigner,
+  PLATFORM_DID,
+  installEphemeralPlatformSigner,
+} from '../../test/support/platform-signer';
 
 const API_BASE_URL = 'https://api.example.org';
 const STATUS_LIST_URL = `${API_BASE_URL}/v1/status-lists/1`;
-const PLATFORM_PRIVATE_KEY_PATH = 'certificates/LICCIUM_priv.pem';
-const PLATFORM_DID = 'did:web:liccium.com';
 const REVOKED_INDICES = [3, 4096];
 
 describe('StatusListService', () => {
@@ -30,18 +32,16 @@ describe('StatusListService', () => {
   };
   const repository = { query: jest.fn(), createQueryBuilder: jest.fn() };
   let service: StatusListService;
+  let platformSigner: EphemeralPlatformSigner;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     process.env.API_BASE_URL = `${API_BASE_URL}/`;
-    process.env.HALCOM_CERT_PRIVATE_KEY = readFileSync(
-      PLATFORM_PRIVATE_KEY_PATH,
-      'utf8',
-    );
+    platformSigner = await installEphemeralPlatformSigner();
   });
 
   afterAll(() => {
     delete process.env.API_BASE_URL;
-    delete process.env.HALCOM_CERT_PRIVATE_KEY;
+    platformSigner.cleanup();
   });
 
   beforeEach(async () => {

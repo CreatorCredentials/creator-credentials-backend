@@ -1,4 +1,3 @@
-import { readFileSync } from 'fs';
 import * as crypto from 'crypto';
 import { of } from 'rxjs';
 import { BadRequestException } from '@nestjs/common';
@@ -9,9 +8,12 @@ import { signJWTWithX5c } from 'src/credentials/credentials.helpers';
 import { encodeBitstring } from 'src/status-list/bitstring';
 import { StatusListService } from 'src/status-list/status-list.service';
 import { VerificationService } from './verification.service';
+import {
+  EphemeralPlatformSigner,
+  PLATFORM_DID,
+  installEphemeralPlatformSigner,
+} from '../../test/support/platform-signer';
 
-const PLATFORM_PRIVATE_KEY_PATH = 'certificates/LICCIUM_priv.pem';
-const PLATFORM_DID = 'did:web:liccium.com';
 const LOCAL_LIST_URL = 'https://api.example.org/v1/status-lists/1';
 const REMOTE_LIST_URL = 'https://other.example/status/7';
 const INDEX = 12;
@@ -145,16 +147,14 @@ function signEs256(
 describe('VerificationService', () => {
   const statusList = { isLocalListUrl: jest.fn(), isRevoked: jest.fn() };
   let service: VerificationService;
+  let platformSigner: EphemeralPlatformSigner;
 
-  beforeAll(() => {
-    process.env.HALCOM_CERT_PRIVATE_KEY = readFileSync(
-      PLATFORM_PRIVATE_KEY_PATH,
-      'utf8',
-    );
+  beforeAll(async () => {
+    platformSigner = await installEphemeralPlatformSigner();
   });
 
   afterAll(() => {
-    delete process.env.HALCOM_CERT_PRIVATE_KEY;
+    platformSigner.cleanup();
   });
 
   beforeEach(() => {

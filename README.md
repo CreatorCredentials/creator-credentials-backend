@@ -56,6 +56,7 @@ NestJS API for the Creator Credentials platform: Clerk-authenticated issuer/crea
 |---|---|---|
 | `APP_PORT` | `3100` (plain HTTP) | Listen port (`main.ts:32`) |
 | `EIDAS_LOTL_URL` | code default | eIDAS List-of-Trusted-Lists source (**not in `.env.example`**) |
+| `HALCOM_CERT_DER_PATH` | `./certificates/LICCIUM.der` | DER certificate placed in the `x5c` header next to `HALCOM_CERT_PRIVATE_KEY`; the unit tests point it at a generated one |
 | `EIDAS_LOTL_SIGNERS_DIR` | code default | LOTL signer certs dir (**not in `.env.example`**) |
 | `EIDAS_CHAIN_VALIDATION` | `enforce` | `enforce`: `cert-challenge/submit-cert` answers 503 until the eIDAS trust store is loaded. `skip`: accept certificates without the chain check while the store is empty — local development only |
 | `EIDAS_EXTRA_ANCHORS_DIR` | unset | Directory of `*.pem` CA certificates added to the trust store on every refresh, so a dev environment can run the cert challenge against a self-made CA. Never set on production |
