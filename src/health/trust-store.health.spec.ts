@@ -1,3 +1,4 @@
+import { HealthCheckError } from '@nestjs/terminus';
 import { TrustStoreService } from 'src/cert-challenge/trust-store/trust-store.service';
 import { TrustStoreHealthIndicator } from './trust-store.health';
 
@@ -7,13 +8,18 @@ describe('TrustStoreHealthIndicator', () => {
     trustStore as unknown as TrustStoreService,
   );
 
-  it('is down while the store is empty', () => {
+  it('fails the health check while the store is empty', () => {
     trustStore.isReady.mockReturnValue(false);
     trustStore.summary.mockReturnValue({ status: 'pending', anchors: 0 });
 
-    expect(indicator.check('trustStore')).toEqual({
-      trustStore: { status: 'down', refresh: 'pending', anchors: 0 },
-    });
+    expect(() => indicator.check('trustStore')).toThrow(HealthCheckError);
+    try {
+      indicator.check('trustStore');
+    } catch (error) {
+      expect((error as HealthCheckError).causes).toEqual({
+        trustStore: { status: 'down', refresh: 'pending', anchors: 0 },
+      });
+    }
   });
 
   it('is up with the refresh details once anchors are loaded', () => {
