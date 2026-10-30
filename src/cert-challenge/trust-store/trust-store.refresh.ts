@@ -2,6 +2,7 @@ import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { TrustStoreService } from './trust-store.service';
 import { EidasPipelineService } from './eidas/eidas-pipeline.service';
+import { ExtraAnchorsLoader } from './eidas/extra-anchors.loader';
 
 /**
  * Drives the trust store lifecycle: an initial refresh on application start,
@@ -16,12 +17,13 @@ export class TrustStoreRefreshService implements OnApplicationBootstrap {
   constructor(
     private readonly trustStore: TrustStoreService,
     private readonly pipeline: EidasPipelineService,
+    private readonly extraAnchors: ExtraAnchorsLoader,
   ) {}
 
   onApplicationBootstrap(): void {
     // Refresh runs in the background so we don't block app boot. The trust
-    // store starts in `pending` state, so submitCert is fail-closed until
-    // this completes.
+    // store starts empty, so submitCert answers 503 until this completes
+    // (unless EIDAS_CHAIN_VALIDATION=skip).
     void this.refresh().catch((e) => {
       this.logger.error(`Initial trust store refresh failed: ${describe(e)}`);
     });
@@ -45,8 +47,11 @@ export class TrustStoreRefreshService implements OnApplicationBootstrap {
 
     this.inFlight = (async () => {
       try {
-        const anchors = await this.pipeline.collectAnchors();
-        this.trustStore.replaceAnchors(anchors);
+        const [anchors, extra] = await Promise.all([
+          this.pipeline.collectAnchors(),
+          this.extraAnchors.load(),
+        ]);
+        this.trustStore.replaceAnchors([...anchors, ...extra]);
       } catch (e) {
         this.trustStore.markError(e);
         throw e;

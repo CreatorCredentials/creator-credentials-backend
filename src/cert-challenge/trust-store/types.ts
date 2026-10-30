@@ -24,7 +24,24 @@ export interface TrustAnchor {
 
 export type TrustedServiceType = 'QSeal' | 'QSig';
 
+/**
+ * Outcome of the last refresh. An `error` state keeps the previously loaded
+ * anchors (if any) in service; `anchorCount` says how many are still there.
+ */
 export type TrustStoreState =
   | { status: 'pending' }
   | { status: 'ready'; loadedAt: Date; anchorCount: number }
-  | { status: 'error'; loadedAt: Date | null; error: string };
+  | {
+      status: 'error';
+      loadedAt: Date | null;
+      anchorCount: number;
+      error: string;
+    };
+
+/** Flat, serialisable view of the store for the admin API and health check. */
+export interface TrustStoreSummary {
+  status: TrustStoreState['status'];
+  anchors: number;
+  lastRefresh: string | null;
+  lastError: string | null;
+}

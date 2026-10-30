@@ -7,6 +7,7 @@ import {
   BasicConstraintsExtension,
 } from '@peculiar/x509';
 import { Crypto } from '@peculiar/webcrypto';
+import { ServiceUnavailableException } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { TrustStoreService } from '../trust-store/trust-store.service';
 import { CertValidatorService } from './cert-validator.service';
@@ -138,15 +139,40 @@ describe('CertValidatorService', () => {
 
   beforeEach(() => {
     trustStore = new TrustStoreService();
-    validator = new CertValidatorService(trustStore);
+    validator = new CertValidatorService(trustStore, 'enforce');
   });
 
-  it('skips chain validation while the trust store is not ready', async () => {
+  it('refuses to validate while the trust store is empty', async () => {
     const leaf = await issueLeaf(ca);
 
-    const result = await validator.validateLeafPem(leaf.cert.toString('pem'));
+    await expect(
+      validator.validateLeafPem(leaf.cert.toString('pem')),
+    ).rejects.toThrow(ServiceUnavailableException);
+  });
+
+  it('still rejects a malformed certificate while the trust store is empty', async () => {
+    const result = await validator.validateLeafPem('not a certificate');
+
+    expect(result).toMatchObject({ ok: false });
+  });
+
+  it('skips chain validation while the store is empty only in skip mode', async () => {
+    const skipping = new CertValidatorService(trustStore, 'skip');
+    const leaf = await issueLeaf(ca);
+
+    const result = await skipping.validateLeafPem(leaf.cert.toString('pem'));
 
     expect(result).toMatchObject({ ok: true, matchedAnchor: null });
+  });
+
+  it('validates the chain in skip mode once anchors are loaded', async () => {
+    const skipping = new CertValidatorService(trustStore, 'skip');
+    trustStore.replaceAnchors([buildAnchor(ca.cert)]);
+    const leaf = await issueLeaf(await generateCa('CN=Other CA, C=EU'));
+
+    const result = await skipping.validateLeafPem(leaf.cert.toString('pem'));
+
+    expect(result.ok).toBe(false);
   });
 
   it('accepts a leaf signed by a trusted anchor', async () => {

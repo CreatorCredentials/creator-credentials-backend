@@ -4,7 +4,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { X509Certificate } from '@peculiar/x509';
-import type { TrustAnchor, TrustStoreState } from './types';
+import type { TrustAnchor, TrustStoreState, TrustStoreSummary } from './types';
 
 /**
  * In-memory store of eIDAS trust anchors.
@@ -12,9 +12,11 @@ import type { TrustAnchor, TrustStoreState } from './types';
  * Anchors are keyed by their SHA-256 fingerprint and indexed by issuer DN to
  * allow O(1) "candidate issuers" lookups when validating a leaf certificate.
  *
- * The store starts in `pending` state and only becomes `ready` after a
- * successful refresh from the EU LOTL pipeline. While not `ready`, the
- * `requireReady()` gate throws 503 (fail-closed).
+ * The store starts empty (`pending`) and is filled by the first successful
+ * refresh from the EU LOTL pipeline. A later failed refresh is recorded as
+ * `error` but keeps the anchors already loaded, so `isReady()` means "anchors
+ * are available", not "the last refresh succeeded". `requireReady()` throws
+ * 503 while the store is still empty (fail-closed).
  */
 @Injectable()
 export class TrustStoreService {
@@ -29,15 +31,28 @@ export class TrustStoreService {
   }
 
   isReady(): boolean {
-    return this.state.status === 'ready';
+    return this.byFingerprint.size > 0;
   }
 
   requireReady(): void {
-    if (this.state.status !== 'ready') {
+    if (!this.isReady()) {
       throw new ServiceUnavailableException(
         'Certificate trust store is not ready yet. Please retry shortly.',
       );
     }
+  }
+
+  summary(): TrustStoreSummary {
+    const { state } = this;
+    return {
+      status: state.status,
+      anchors: this.byFingerprint.size,
+      lastRefresh:
+        state.status === 'pending' || !state.loadedAt
+          ? null
+          : state.loadedAt.toISOString(),
+      lastError: state.status === 'error' ? state.error : null,
+    };
   }
 
   /** Look up trust anchors that could potentially be the issuer of `leaf`. */
@@ -87,21 +102,23 @@ export class TrustStoreService {
       anchorCount: byFingerprint.size,
     };
 
-    this.logger.log(
-      `Trust store ready: ${byFingerprint.size} anchors from eIDAS LOTL.`,
-    );
+    this.logger.log(`Trust store ready: ${byFingerprint.size} anchors.`);
   }
 
+  /** Record a failed refresh; anchors from the previous refresh stay in service. */
   markError(error: unknown): void {
     const message = error instanceof Error ? error.message : String(error);
     const previousLoadedAt =
-      this.state.status === 'ready' ? this.state.loadedAt : null;
+      this.state.status === 'pending' ? null : this.state.loadedAt;
     this.state = {
       status: 'error',
       loadedAt: previousLoadedAt,
+      anchorCount: this.byFingerprint.size,
       error: message,
     };
-    this.logger.error(`Trust store refresh failed: ${message}`);
+    this.logger.error(
+      `Trust store refresh failed, keeping ${this.byFingerprint.size} previously loaded anchors: ${message}`,
+    );
   }
 
   /**

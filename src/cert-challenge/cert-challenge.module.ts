@@ -7,6 +7,10 @@ import { User } from 'src/users/user.entity';
 import { UsersModule } from 'src/users/users.module';
 import { TrustStoreModule } from './trust-store/trust-store.module';
 import { CertValidatorService } from './validation/cert-validator.service';
+import {
+  CHAIN_VALIDATION_MODE,
+  chainValidationModeFromEnv,
+} from './validation/chain-validation.mode';
 
 @Module({
   imports: [
@@ -15,7 +19,11 @@ import { CertValidatorService } from './validation/cert-validator.service';
     TrustStoreModule,
   ],
   controllers: [CertChallengeController],
-  providers: [CertChallengeService, CertValidatorService],
+  providers: [
+    CertChallengeService,
+    CertValidatorService,
+    { provide: CHAIN_VALIDATION_MODE, useFactory: chainValidationModeFromEnv },
+  ],
   exports: [CertChallengeService],
 })
 export class CertChallengeModule {}

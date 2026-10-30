@@ -7,6 +7,7 @@ import { LotlPivotBootstrap } from './eidas/pivot-bootstrap';
 import { LotlLoaderService } from './eidas/lotl-loader.service';
 import { TlLoaderService } from './eidas/tl-loader.service';
 import { EidasPipelineService } from './eidas/eidas-pipeline.service';
+import { ExtraAnchorsLoader } from './eidas/extra-anchors.loader';
 
 @Module({
   imports: [HttpModule.register({ timeout: 30000 })],
@@ -18,6 +19,7 @@ import { EidasPipelineService } from './eidas/eidas-pipeline.service';
     LotlLoaderService,
     TlLoaderService,
     EidasPipelineService,
+    ExtraAnchorsLoader,
   ],
   exports: [TrustStoreService, TrustStoreRefreshService],
 })

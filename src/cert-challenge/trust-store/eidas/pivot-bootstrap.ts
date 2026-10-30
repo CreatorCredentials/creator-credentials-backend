@@ -1,8 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { X509Certificate } from '@peculiar/x509';
-import { createHash } from 'crypto';
-import { promises as fs } from 'fs';
+import type { X509Certificate } from '@peculiar/x509';
 import * as path from 'path';
+import { readPemCertificatesFromDir, sha256Fingerprint } from './pem';
 
 /**
  * Loads the bootstrap trust anchors that are authorised to XAdES-sign the EU
@@ -24,9 +23,9 @@ export class LotlPivotBootstrap {
 
   async loadAllowedSignerFingerprints(): Promise<Set<string>> {
     const dir = process.env.EIDAS_LOTL_SIGNERS_DIR || this.defaultDir;
-    let entries: string[];
+    let certs: X509Certificate[];
     try {
-      entries = await fs.readdir(dir);
+      certs = await readPemCertificatesFromDir(dir);
     } catch (e) {
       throw new Error(
         `LOTL bootstrap directory ${dir} cannot be read: ${describe(e)}`,
@@ -34,24 +33,15 @@ export class LotlPivotBootstrap {
     }
 
     const fingerprints = new Set<string>();
-    for (const entry of entries) {
-      if (!entry.toLowerCase().endsWith('.pem')) continue;
-
-      const filePath = path.join(dir, entry);
-      const content = await fs.readFile(filePath, 'utf8');
-      for (const cert of parsePemCertificates(content)) {
-        const der = cert.rawData;
-        const fp = createHash('sha256')
-          .update(new Uint8Array(der))
-          .digest('hex');
-        fingerprints.add(fp);
-        this.logger.log(
-          `LOTL signer anchor loaded: ${cert.subject} (sha256=${fp.slice(
-            0,
-            16,
-          )}…)`,
-        );
-      }
+    for (const cert of certs) {
+      const fp = sha256Fingerprint(cert);
+      fingerprints.add(fp);
+      this.logger.log(
+        `LOTL signer anchor loaded: ${cert.subject} (sha256=${fp.slice(
+          0,
+          16,
+        )}…)`,
+      );
     }
 
     if (fingerprints.size === 0) {
@@ -63,26 +53,6 @@ export class LotlPivotBootstrap {
 
     return fingerprints;
   }
-}
-
-function parsePemCertificates(pem: string): X509Certificate[] {
-  const blocks = pem.match(
-    /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g,
-  );
-  if (!blocks) return [];
-  const certs: X509Certificate[] = [];
-  for (const block of blocks) {
-    const base64 = block
-      .replace(/-----BEGIN CERTIFICATE-----/g, '')
-      .replace(/-----END CERTIFICATE-----/g, '')
-      .replace(/\s+/g, '');
-    try {
-      certs.push(new X509Certificate(Buffer.from(base64, 'base64')));
-    } catch {
-      // Skip unparsable blocks; the loader logs the problem at higher level.
-    }
-  }
-  return certs;
 }
 
 function describe(e: unknown): string {

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  GoneException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -106,14 +107,13 @@ export class CertChallengeService {
       throw new NotFoundException('No pending cert challenge found');
     }
 
-    // Expiry check disabled for dev/testing — re-enable in production.
-    // if (challenge.expiresAt && challenge.expiresAt.getTime() < Date.now()) {
-    //   challenge.status = 'failed';
-    //   await this.certChallengeRepository.save(challenge);
-    //   throw new GoneException(
-    //     `Challenge expired at ${challenge.expiresAt.toISOString()}; please restart the cert challenge.`,
-    //   );
-    // }
+    if (challenge.expiresAt && challenge.expiresAt.getTime() < Date.now()) {
+      challenge.status = 'failed';
+      await this.certChallengeRepository.save(challenge);
+      throw new GoneException(
+        `Challenge expired at ${challenge.expiresAt.toISOString()}; please restart the cert challenge.`,
+      );
+    }
 
     try {
       const x509 = new crypto.X509Certificate(challenge.certPem);

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { TrustStoreModule } from 'src/cert-challenge/trust-store/trust-store.module';
 import { Credential } from 'src/credentials/credential.entity';
 import { CredentialsModule } from 'src/credentials/credentials.module';
 import { StatusListModule } from 'src/status-list/status-list.module';
@@ -14,6 +15,7 @@ import { AdminService } from './admin.service';
     UsersModule,
     CredentialsModule,
     StatusListModule,
+    TrustStoreModule,
   ],
   providers: [AdminService],
   controllers: [AdminController],

@@ -11,7 +11,7 @@ NestJS API for the Creator Credentials platform: Clerk-authenticated issuer/crea
 - **jose** (EC P-256 / ES256 VC signing) + **jsonwebtoken** (RS256 `x5c` platform signer, and the cross-app export-JWT verify)
 - **xadesjs** + `@xmldom/xmldom` + `xpath` – XAdES signature verification for the eIDAS LOTL trust-store pipeline
 - **@nestjs/schedule** – cron pollers (domain / did:web verification, daily LOTL refresh)
-- **@nestjs/terminus** – DB health check
+- **@nestjs/terminus** – health check: DB ping + eIDAS trust store state (`trustStore` is `down` until the first LOTL refresh has loaded anchors)
 
 ## Prerequisites
 
@@ -57,6 +57,8 @@ NestJS API for the Creator Credentials platform: Clerk-authenticated issuer/crea
 | `APP_PORT` | `3100` (plain HTTP) | Listen port (`main.ts:32`) |
 | `EIDAS_LOTL_URL` | code default | eIDAS List-of-Trusted-Lists source (**not in `.env.example`**) |
 | `EIDAS_LOTL_SIGNERS_DIR` | code default | LOTL signer certs dir (**not in `.env.example`**) |
+| `EIDAS_CHAIN_VALIDATION` | `enforce` | `enforce`: `cert-challenge/submit-cert` answers 503 until the eIDAS trust store is loaded. `skip`: accept certificates without the chain check while the store is empty — local development only |
+| `EIDAS_EXTRA_ANCHORS_DIR` | unset | Directory of `*.pem` CA certificates added to the trust store on every refresh, so a dev environment can run the cert challenge against a self-made CA. Never set on production |
 | `NODE_ENV` | – | Log level / prod-vs-dev behaviour |
 
 ### Stale keys to remove from `.env.example`

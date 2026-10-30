@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   KeyUsageFlags,
   KeyUsagesExtension,
@@ -9,6 +9,10 @@ import { Crypto } from '@peculiar/webcrypto';
 import { createHash } from 'crypto';
 import { TrustStoreService } from '../trust-store/trust-store.service';
 import type { TrustAnchor } from '../trust-store/types';
+import {
+  CHAIN_VALIDATION_MODE,
+  ChainValidationMode,
+} from './chain-validation.mode';
 
 let cryptoProviderInstalled = false;
 function ensureCryptoProvider() {
@@ -28,7 +32,8 @@ const MIN_RSA_BITS = 2048;
 export interface CertValidationSuccess {
   ok: true;
   fingerprint: string;
-  matchedAnchor: TrustAnchor;
+  /** `null` only when chain validation was skipped (`EIDAS_CHAIN_VALIDATION=skip`). */
+  matchedAnchor: TrustAnchor | null;
 }
 
 export interface CertValidationFailure {
@@ -45,12 +50,25 @@ export type CertValidationResult =
  * eIDAS trust store. Per the project's "end-to-end" cert convention, the
  * leaf must directly chain to one of the trust anchors loaded from the
  * member-state Trusted Lists — no intermediates are accepted.
+ *
+ * While the trust store holds no anchors, `validateLeafPem` throws a 503
+ * (`enforce`) or, for local development only, skips the chain check (`skip`).
  */
 @Injectable()
 export class CertValidatorService {
   private readonly logger = new Logger(CertValidatorService.name);
 
-  constructor(private readonly trustStore: TrustStoreService) {}
+  constructor(
+    private readonly trustStore: TrustStoreService,
+    @Inject(CHAIN_VALIDATION_MODE)
+    private readonly chainValidation: ChainValidationMode,
+  ) {
+    if (chainValidation === 'skip') {
+      this.logger.warn(
+        'EIDAS_CHAIN_VALIDATION=skip: certificates are accepted without the eIDAS chain check while the trust store is empty. Never run shared environments like this.',
+      );
+    }
+  }
 
   async validateLeafPem(pem: string): Promise<CertValidationResult> {
     ensureCryptoProvider();
@@ -74,12 +92,12 @@ export class CertValidatorService {
     const keyUsageFailure = this.checkKeyUsage(cert);
     if (keyUsageFailure) return fail(keyUsageFailure);
 
-    // Skip eIDAS chain validation when the trust store is not ready (e.g. during local dev/testing).
     if (!this.trustStore.isReady()) {
+      if (this.chainValidation === 'enforce') this.trustStore.requireReady();
       this.logger.warn(
-        'Trust store not ready — skipping eIDAS chain validation (dev/test mode).',
+        'Trust store not ready — skipping eIDAS chain validation (EIDAS_CHAIN_VALIDATION=skip).',
       );
-      return { ok: true, fingerprint, matchedAnchor: null as any };
+      return { ok: true, fingerprint, matchedAnchor: null };
     }
 
     const candidates = this.trustStore.findCandidateIssuers(cert);
