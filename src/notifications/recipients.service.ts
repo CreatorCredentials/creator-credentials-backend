@@ -1,7 +1,11 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { User } from 'src/users/user.entity';
 import { findVerifiedEmail } from 'src/users/verified-email';
-import { CLERK_USERS, ClerkUsersPort } from './clerk-users.port';
+import {
+  CLERK_USERS,
+  ClerkUsersPort,
+  primaryEmailOf,
+} from 'src/clerk/clerk-users.port';
 
 @Injectable()
 export class RecipientsService {
@@ -26,11 +30,7 @@ export class RecipientsService {
 
   private async clerkPrimaryEmail(user: User): Promise<string | undefined> {
     try {
-      const clerkUser = await this.clerkUsers.getUser(user.clerkId);
-      const primary = clerkUser.emailAddresses.find(
-        (address) => address.id === clerkUser.primaryEmailAddressId,
-      );
-      return (primary ?? clerkUser.emailAddresses[0])?.emailAddress;
+      return primaryEmailOf(await this.clerkUsers.getUser(user.clerkId));
     } catch (error) {
       this.logger.warn(
         `Clerk lookup failed for user ${user.id}: ${error.message}`,

@@ -64,8 +64,12 @@ export function formatCredentialForUnion(
  * Shape of GET credentials/issuers. Expects `user`, `user.credentials` and
  * `user.createdConnections` to be loaded on the credential.
  */
+/** Creator sign-in e-mails by Clerk id, resolved by the caller through `ClerkEmailsService`. */
+export type CreatorEmails = ReadonlyMap<string, string>;
+
 export function formatIssuedCredential(
   credential: Credential,
+  creatorEmails?: CreatorEmails,
 ): IssuedCredential {
   return {
     ...formatCredentialForUnion(credential),
@@ -77,7 +81,7 @@ export function formatIssuedCredential(
       credential.user,
       credential.issuerId,
     ),
-    creator: formatCreatorIdentity(credential.user),
+    creator: formatCreatorIdentity(credential.user, creatorEmails),
   };
 }
 
@@ -334,11 +338,16 @@ function revocationFields(credential: Credential): RevocationFields {
   };
 }
 
-function formatCreatorIdentity(creator: User): IssuedCredentialCreator {
+/** The e-mail is the creator's Clerk sign-in address; the EMAIL credential is the fallback. */
+function formatCreatorIdentity(
+  creator: User,
+  creatorEmails?: CreatorEmails,
+): IssuedCredentialCreator {
   return {
     id: creator.id,
     name: creator.name ?? null,
-    email: findVerifiedEmail(creator) ?? null,
+    email:
+      creatorEmails?.get(creator.clerkId) ?? findVerifiedEmail(creator) ?? null,
     didKey: creator.didKey,
   };
 }

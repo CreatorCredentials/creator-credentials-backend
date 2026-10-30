@@ -37,6 +37,7 @@ import { HttpService } from '@nestjs/axios';
 import { JwtService } from '@nestjs/jwt';
 import { KeyObject, createPublicKey } from 'crypto';
 import { KeypairChallengeService } from 'src/keypair-challenge/keypair-challenge.service';
+import { ClerkEmailsService } from 'src/clerk/clerk-emails.service';
 
 @Controller('credentials')
 export class CredentialsController {
@@ -46,6 +47,7 @@ export class CredentialsController {
     private readonly httpService: HttpService,
     private readonly jwtService: JwtService,
     private readonly keypairChallengeService: KeypairChallengeService,
+    private readonly clerkEmails: ClerkEmailsService,
   ) {}
 
   @UseGuards(AuthGuard)
@@ -81,7 +83,14 @@ export class CredentialsController {
         user.id,
         status,
       );
-    return { credentials: credentials.map(formatIssuedCredential) };
+    const creatorEmails = await this.clerkEmails.primaryEmailsByClerkId(
+      credentials.map((credential) => credential.user?.clerkId),
+    );
+    return {
+      credentials: credentials.map((credential) =>
+        formatIssuedCredential(credential, creatorEmails),
+      ),
+    };
   }
 
   @UseGuards(AuthGuard)
@@ -579,7 +588,10 @@ export class CredentialsController {
       user,
       body.reason,
     );
-    return formatIssuedCredential(revoked);
+    const creatorEmails = await this.clerkEmails.primaryEmailsByClerkId([
+      revoked.user?.clerkId,
+    ]);
+    return formatIssuedCredential(revoked, creatorEmails);
   }
 
   @UseGuards(AuthGuard)

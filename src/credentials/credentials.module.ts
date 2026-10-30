@@ -8,6 +8,7 @@ import { HttpModule } from '@nestjs/axios';
 import { JwtModule } from '@nestjs/jwt';
 import { KeypairChallengeModule } from 'src/keypair-challenge/keypair-challenge.module';
 import { StatusListModule } from 'src/status-list/status-list.module';
+import { ClerkModule } from 'src/clerk/clerk.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { StatusListModule } from 'src/status-list/status-list.module';
     JwtModule,
     forwardRef(() => KeypairChallengeModule),
     StatusListModule,
+    ClerkModule,
   ],
   providers: [CredentialsService],
   controllers: [CredentialsController],

@@ -2,6 +2,7 @@ import { NotFoundException } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { JwtService } from '@nestjs/jwt';
 import { KeypairChallengeService } from 'src/keypair-challenge/keypair-challenge.service';
+import { ClerkEmailsService } from 'src/clerk/clerk-emails.service';
 import { CredentialType } from 'src/shared/typings/CredentialType';
 import { ClerkRole, User } from 'src/users/user.entity';
 import { UsersService } from 'src/users/users.service';
@@ -29,6 +30,7 @@ describe('CredentialsController role checks for an admin', () => {
     {} as HttpService,
     {} as JwtService,
     {} as KeypairChallengeService,
+    {} as ClerkEmailsService,
   );
 
   const mutations: [string, () => Promise<unknown>][] = [

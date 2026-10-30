@@ -5,6 +5,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ClerkRole, User } from 'src/users/user.entity';
 import { UsersService } from 'src/users/users.service';
 import { KeypairChallengeService } from 'src/keypair-challenge/keypair-challenge.service';
+import { ClerkEmailsService } from 'src/clerk/clerk-emails.service';
 import { CredentialType } from 'src/shared/typings/CredentialType';
 import { CredentialVerificationStatus } from 'src/shared/typings/CredentialVerificationStatus';
 import { Credential } from './credential.entity';
@@ -100,6 +101,7 @@ describe('CredentialsController export', () => {
       httpService as unknown as HttpService,
       jwtService as unknown as JwtService,
       {} as KeypairChallengeService,
+      {} as ClerkEmailsService,
     );
   });
 
