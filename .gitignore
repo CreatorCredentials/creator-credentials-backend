@@ -40,6 +40,16 @@ secrets
 
 # cert folders
 certificates
+# The eIDAS bootstrap is a public certificate (the EU Commission's LOTL signer), not a secret:
+# the trust store cannot start without it, so it ships with the repository.
+!certificates/
+certificates/*
+!certificates/eidas/
+certificates/eidas/*
+!certificates/eidas/lotl-signers/
+!certificates/eidas/lotl-signers/*.pem
+!certificates/eidas/lotl-signers/README.md
 openfuture-cert
 
 src/main.ts
+
