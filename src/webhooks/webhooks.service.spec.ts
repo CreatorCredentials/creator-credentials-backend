@@ -81,6 +81,26 @@ describe('WebhooksService', () => {
     );
   });
 
+  it('never grants the admin role from the browser-writable unsafe metadata', async () => {
+    usersService.findOrCreate.mockResolvedValue({
+      user: storedUser,
+      created: true,
+    });
+
+    await service.handleEvent({
+      type: 'user.created',
+      data: {
+        ...signUpData,
+        public_metadata: { ...signUpData.public_metadata, role: undefined },
+        unsafe_metadata: { role: 'ADMIN' },
+      },
+    });
+
+    expect(usersService.findOrCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ clerkRole: ClerkRole.Creator }),
+    );
+  });
+
   it('does not emit when the user already exists', async () => {
     usersService.findOrCreate.mockResolvedValue({
       user: storedUser,
