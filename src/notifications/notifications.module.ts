@@ -1,11 +1,10 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SESv2Client } from '@aws-sdk/client-sesv2';
-import { clerkClient } from '@clerk/clerk-sdk-node';
 import { User } from 'src/users/user.entity';
 import { LogMailer } from './adapters/log-mailer';
 import { SesMailer } from './adapters/ses-mailer';
-import { CLERK_USERS } from './clerk-users.port';
+import { ClerkModule } from 'src/clerk/clerk.module';
 import { MAILER, MailerPort } from './mailer.port';
 import { NotificationsService } from './notifications.service';
 import { RecipientsService } from './recipients.service';
@@ -24,11 +23,10 @@ function createMailer(): MailerPort {
 }
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User])],
+  imports: [TypeOrmModule.forFeature([User]), ClerkModule],
   providers: [
     NotificationsService,
     RecipientsService,
-    { provide: CLERK_USERS, useValue: clerkClient.users },
     { provide: MAILER, useFactory: createMailer },
   ],
 })

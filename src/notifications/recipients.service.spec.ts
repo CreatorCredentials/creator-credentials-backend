@@ -2,7 +2,7 @@ import { ClerkRole, User } from 'src/users/user.entity';
 import { Credential } from 'src/credentials/credential.entity';
 import { CredentialType } from 'src/shared/typings/CredentialType';
 import { CredentialVerificationStatus } from 'src/shared/typings/CredentialVerificationStatus';
-import { ClerkUsersPort } from './clerk-users.port';
+import { ClerkUsersPort } from 'src/clerk/clerk-users.port';
 import { RecipientsService } from './recipients.service';
 
 const VERIFIED_EMAIL = 'verified@example.org';
@@ -34,7 +34,7 @@ describe('RecipientsService', () => {
   beforeEach(() => {
     jest.resetAllMocks();
     delete process.env.NOTIFY_ADMIN_EMAILS;
-    service = new RecipientsService(clerkUsers as ClerkUsersPort);
+    service = new RecipientsService(clerkUsers as unknown as ClerkUsersPort);
   });
 
   describe('emailOf', () => {
