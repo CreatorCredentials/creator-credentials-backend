@@ -81,6 +81,81 @@ describe('WebhooksService', () => {
     );
   });
 
+  describe('admins created by operators in the Clerk dashboard', () => {
+    const adminData = {
+      id: CLERK_ID,
+      primary_email_address_id: 'e1',
+      email_addresses: [{ id: 'e1', email_address: EMAIL }],
+      public_metadata: { role: 'ADMIN', name: 'Ops' },
+    };
+
+    it('creates the row on user.created although no terms were accepted', async () => {
+      usersService.findOrCreate.mockResolvedValue({
+        user: { id: 21, clerkRole: ClerkRole.Admin, name: 'Ops' },
+        created: true,
+      });
+
+      await service.handleEvent({ type: 'user.created', data: adminData });
+
+      expect(usersService.findOrCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clerkId: CLERK_ID,
+          clerkRole: ClerkRole.Admin,
+          termsLink: undefined,
+        }),
+      );
+    });
+
+    it('creates the row on user.updated when the account is not known yet', async () => {
+      usersService.getByClerkId.mockResolvedValue(null);
+
+      await service.handleEvent({ type: 'user.updated', data: adminData });
+
+      expect(usersService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clerkId: CLERK_ID,
+          clerkRole: ClerkRole.Admin,
+          email: EMAIL,
+        }),
+      );
+    });
+
+    it('still waits for the terms of an issuer or creator', async () => {
+      const creatorWithoutTerms = {
+        ...adminData,
+        public_metadata: { role: 'CREATOR', name: 'Alice' },
+      };
+      usersService.getByClerkId.mockResolvedValue(null);
+
+      await service.handleEvent({
+        type: 'user.created',
+        data: creatorWithoutTerms,
+      });
+      await service.handleEvent({
+        type: 'user.updated',
+        data: creatorWithoutTerms,
+      });
+
+      expect(usersService.findOrCreate).not.toHaveBeenCalled();
+      expect(usersService.create).not.toHaveBeenCalled();
+    });
+
+    it('does not create a row for an admin claimed only in unsafe metadata', async () => {
+      usersService.getByClerkId.mockResolvedValue(null);
+
+      await service.handleEvent({
+        type: 'user.created',
+        data: {
+          ...adminData,
+          public_metadata: {},
+          unsafe_metadata: { role: 'ADMIN' },
+        },
+      });
+
+      expect(usersService.findOrCreate).not.toHaveBeenCalled();
+    });
+  });
+
   it('never grants the admin role from the browser-writable unsafe metadata', async () => {
     usersService.findOrCreate.mockResolvedValue({
       user: storedUser,
