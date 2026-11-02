@@ -16,6 +16,8 @@ export type JwsHeader = {
 };
 
 export type ParsedJws = {
+  /** The token as presented, trimmed: the string a platform record would hold. */
+  compact: string;
   header: JwsHeader;
   payload: Record<string, unknown>;
   /** `<b64 header>.<b64 payload>`, the bytes the signature covers. */
@@ -30,12 +32,14 @@ export function parseCompactJws(token: unknown): ParsedJws {
   if (typeof token !== 'string') {
     throw new MalformedJwsError('jwt must be a string');
   }
-  const parts = token.trim().split('.');
+  const compact = token.trim();
+  const parts = compact.split('.');
   if (parts.length !== COMPACT_JWS_PARTS || parts.some((part) => !part)) {
     throw new MalformedJwsError('jwt must be a compact JWS with three parts');
   }
   const [encodedHeader, encodedPayload, encodedSignature] = parts;
   return {
+    compact,
     header: decodeJsonObject(encodedHeader, 'header'),
     payload: decodeJsonObject(encodedPayload, 'payload'),
     signingInput: `${encodedHeader}.${encodedPayload}`,

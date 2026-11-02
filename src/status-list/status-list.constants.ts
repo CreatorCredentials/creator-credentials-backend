@@ -20,3 +20,7 @@ export const STATUS_LIST_PATH = '/v1/status-lists';
 export const VC_JWT_MEDIA_TYPE = 'application/vc+jwt';
 /** JOSE `typ` of a credential secured as a compact JWS (VC-JOSE-COSE). */
 export const VC_JWT_TYP = 'vc+jwt';
+/** Public registry of the revoked credentials that were issued without a status entry. */
+export const REVOKED_CREDENTIALS_PATH = '/v1/revoked-credentials';
+export const REVOKED_CREDENTIALS_REGISTRY_TYPE = 'RevokedCredentialsRegistry';
+export const JWT_MEDIA_TYPE = 'application/jwt';
