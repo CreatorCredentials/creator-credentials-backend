@@ -109,9 +109,14 @@ describe('WebhooksService', () => {
     it('creates the row on user.updated when the account is not known yet', async () => {
       usersService.getByClerkId.mockResolvedValue(null);
 
+      usersService.findOrCreate.mockResolvedValue({
+        user: { id: 21, clerkRole: ClerkRole.Admin, name: 'Ops' },
+        created: true,
+      });
+
       await service.handleEvent({ type: 'user.updated', data: adminData });
 
-      expect(usersService.create).toHaveBeenCalledWith(
+      expect(usersService.findOrCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           clerkId: CLERK_ID,
           clerkRole: ClerkRole.Admin,
@@ -137,7 +142,6 @@ describe('WebhooksService', () => {
       });
 
       expect(usersService.findOrCreate).not.toHaveBeenCalled();
-      expect(usersService.create).not.toHaveBeenCalled();
     });
 
     it('does not create a row for an admin claimed only in unsafe metadata', async () => {
@@ -187,13 +191,32 @@ describe('WebhooksService', () => {
     expect(eventEmitter.emit).not.toHaveBeenCalled();
   });
 
-  it('does not emit from the user.updated fallback that creates a user', async () => {
+  it('announces the sign-up when user.updated is the event that creates the row', async () => {
     usersService.getByClerkId.mockResolvedValue(null);
-    usersService.create.mockResolvedValue(storedUser);
+    usersService.findOrCreate.mockResolvedValue({
+      user: storedUser,
+      created: true,
+    });
 
     await service.handleEvent({ type: 'user.updated', data: signUpData });
 
-    expect(usersService.create).toHaveBeenCalledTimes(1);
+    expect(usersService.findOrCreate).toHaveBeenCalledTimes(1);
+    expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
+    expect(eventEmitter.emit).toHaveBeenCalledWith(
+      NotificationEvent.UserCreated,
+      expect.objectContaining({ userId: storedUser.id, email: EMAIL }),
+    );
+  });
+
+  it('does not announce twice when user.updated finds the row already created', async () => {
+    usersService.getByClerkId.mockResolvedValue(null);
+    usersService.findOrCreate.mockResolvedValue({
+      user: storedUser,
+      created: false,
+    });
+
+    await service.handleEvent({ type: 'user.updated', data: signUpData });
+
     expect(eventEmitter.emit).not.toHaveBeenCalled();
   });
 });
