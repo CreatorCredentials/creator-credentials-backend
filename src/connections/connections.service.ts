@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Connection, ConnectionStatus } from './connection.entity';
@@ -70,7 +70,7 @@ export class ConnectionsService {
     );
 
     if (existingConnection) {
-      throw new Error('Connection already exists or is pending.');
+      throw new ConflictException('Connection already exists or is pending.');
     }
 
     const connection = new Connection();
