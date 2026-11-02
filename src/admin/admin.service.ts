@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { MoreThanOrEqual, Repository, SelectQueryBuilder } from 'typeorm';
 import { Credential } from 'src/credentials/credential.entity';
 import { CredentialsService } from 'src/credentials/credentials.service';
+import { ClerkEmailsService } from 'src/clerk/clerk-emails.service';
 import { formatAdminCredential } from 'src/credentials/credentials.formatters';
 import { AdminCredential } from 'src/shared/typings/Credentials';
 import { CredentialType } from 'src/shared/typings/CredentialType';
@@ -30,6 +31,7 @@ export class AdminService {
     private readonly usersRepository: Repository<User>,
     private readonly credentialsService: CredentialsService,
     private readonly statusList: StatusListService,
+    private readonly clerkEmails: ClerkEmailsService,
   ) {}
 
   async listCredentials(
@@ -67,7 +69,7 @@ export class AdminService {
       .getManyAndCount();
 
     return {
-      items: credentials.map((credential) => this.format(credential)),
+      items: await this.formatAll(credentials),
       total,
       page: query.page,
       pageSize: query.pageSize,
@@ -81,7 +83,7 @@ export class AdminService {
     if (!credential) {
       throw new NotFoundException('Credential not found.');
     }
-    return this.format(credential);
+    return this.formatOne(credential);
   }
 
   async revokeCredential(
@@ -94,7 +96,7 @@ export class AdminService {
       admin,
       reason,
     );
-    return this.format(revoked);
+    return this.formatOne(revoked);
   }
 
   async listUsers(query: ListAdminUsersQueryDto): Promise<Page<AdminUser>> {
@@ -203,8 +205,22 @@ export class AdminService {
       .leftJoinAndSelect('credential.revokedBy', 'revokedBy');
   }
 
-  private format(credential: Credential): AdminCredential {
-    return formatAdminCredential(credential, this.statusList.credentialUrl());
+  /** The creator e-mail is the Clerk sign-in address, looked up once per page; the EMAIL credential is the fallback. */
+  private async formatAll(
+    credentials: Credential[],
+  ): Promise<AdminCredential[]> {
+    const creatorEmails = await this.clerkEmails.primaryEmailsByClerkId(
+      credentials.map((credential) => credential.user?.clerkId),
+    );
+    const statusListUrl = this.statusList.credentialUrl();
+    return credentials.map((credential) =>
+      formatAdminCredential(credential, statusListUrl, creatorEmails),
+    );
+  }
+
+  private async formatOne(credential: Credential): Promise<AdminCredential> {
+    const [formatted] = await this.formatAll([credential]);
+    return formatted;
   }
 
   private async countGroupedBy<T>(

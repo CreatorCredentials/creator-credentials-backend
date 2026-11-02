@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { TrustStoreModule } from 'src/cert-challenge/trust-store/trust-store.module';
+import { ClerkModule } from 'src/clerk/clerk.module';
 import { Credential } from 'src/credentials/credential.entity';
 import { CredentialsModule } from 'src/credentials/credentials.module';
 import { StatusListModule } from 'src/status-list/status-list.module';
@@ -16,6 +17,7 @@ import { AdminService } from './admin.service';
     CredentialsModule,
     StatusListModule,
     TrustStoreModule,
+    ClerkModule,
   ],
   providers: [AdminService],
   controllers: [AdminController],

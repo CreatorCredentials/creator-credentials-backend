@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { NotFoundException } from '@nestjs/common';
+import { ClerkEmailsService } from 'src/clerk/clerk-emails.service';
 import { Credential } from 'src/credentials/credential.entity';
 import { CredentialsService } from 'src/credentials/credentials.service';
 import { CredentialType } from 'src/shared/typings/CredentialType';
@@ -32,6 +33,7 @@ const creator = buildUser({
   clerkRole: ClerkRole.Creator,
   name: 'Alice',
   didKey: 'did:key:zAlice',
+  clerkId: 'clerk_alice',
   credentials: [
     Object.assign(new Credential(), {
       credentialType: CredentialType.EMail,
@@ -101,6 +103,7 @@ describe('AdminService', () => {
   const usersRepository = { createQueryBuilder: jest.fn() };
   const credentialsService = { revokeCredentialAsAdmin: jest.fn() };
   const statusList = { credentialUrl: jest.fn() };
+  const clerkEmails = { primaryEmailsByClerkId: jest.fn() };
   let service: AdminService;
 
   beforeEach(async () => {
@@ -113,6 +116,7 @@ describe('AdminService', () => {
     credentialsRepository.createQueryBuilder.mockReturnValue(queryBuilder);
     usersRepository.createQueryBuilder.mockReturnValue(queryBuilder);
     statusList.credentialUrl.mockReturnValue(STATUS_LIST_URL);
+    clerkEmails.primaryEmailsByClerkId.mockResolvedValue(new Map());
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -124,6 +128,7 @@ describe('AdminService', () => {
         { provide: getRepositoryToken(User), useValue: usersRepository },
         { provide: CredentialsService, useValue: credentialsService },
         { provide: StatusListService, useValue: statusList },
+        { provide: ClerkEmailsService, useValue: clerkEmails },
       ],
     }).compile();
 
@@ -229,6 +234,40 @@ describe('AdminService', () => {
         revokedBy: null,
         statusList: null,
       });
+    });
+  });
+
+  describe('creator e-mail', () => {
+    it('shows the Clerk sign-in address, looked up once for the whole page', async () => {
+      queryBuilder.getManyAndCount.mockResolvedValue([
+        [buildCredential({ id: 1 }), buildCredential({ id: 2 })],
+        2,
+      ]);
+      clerkEmails.primaryEmailsByClerkId.mockResolvedValue(
+        new Map([['clerk_alice', 'alice@clerk.example']]),
+      );
+
+      const { items } = await service.listCredentials(
+        new ListAdminCredentialsQueryDto(),
+      );
+
+      expect(clerkEmails.primaryEmailsByClerkId).toHaveBeenCalledTimes(1);
+      expect(clerkEmails.primaryEmailsByClerkId).toHaveBeenCalledWith([
+        'clerk_alice',
+        'clerk_alice',
+      ]);
+      expect(items.map((item) => item.creator.email)).toEqual([
+        'alice@clerk.example',
+        'alice@clerk.example',
+      ]);
+    });
+
+    it('falls back to the issued EMAIL credential when Clerk does not know the user', async () => {
+      queryBuilder.getOne.mockResolvedValue(buildCredential({ id: 1 }));
+
+      const credential = await service.getCredential(1);
+
+      expect(credential.creator.email).toBe('alice@example.org');
     });
   });
 

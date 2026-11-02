@@ -88,14 +88,15 @@ export function formatIssuedCredential(
 /**
  * Shape of the admin routes. Expects what `formatIssuedCredential` expects
  * plus `issuer` and `revokedBy`; `statusListCredentialUrl` is the URL of the
- * platform's status list.
+ * platform's status list, `creatorEmails` the creators' Clerk addresses.
  */
 export function formatAdminCredential(
   credential: Credential,
   statusListCredentialUrl: string,
+  creatorEmails?: CreatorEmails,
 ): AdminCredential {
   return {
-    ...formatIssuedCredential(credential),
+    ...formatIssuedCredential(credential, creatorEmails),
     issuer: credential.issuer
       ? {
           id: credential.issuer.id,
