@@ -24,3 +24,18 @@ export type StatusListCredential = {
   /** The same credential as a compact JWS. */
   jwt: string;
 };
+
+/** One entry of the registry of revoked credentials without a status entry. */
+export type RevokedCredentialRecord = {
+  /** The credential's own `id` (`urn:uuid:…`). */
+  id: string;
+  issuer: string | null;
+  revokedAt: string | null;
+};
+
+export type RevokedCredentialsRegistry = {
+  /** The registry document with `proof.jwt`, as served as JSON. */
+  registry: Record<string, unknown>;
+  /** The same document as a compact JWS. */
+  jwt: string;
+};

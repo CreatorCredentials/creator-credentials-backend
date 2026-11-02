@@ -9,6 +9,7 @@ import {
   Res,
 } from '@nestjs/common';
 import { type Response } from 'express';
+import { wantsJwt } from './jwt-format';
 import { StatusListService } from './status-list.service';
 import {
   STATUS_LIST_CACHE_TTL_MS,
@@ -16,7 +17,6 @@ import {
   VC_JWT_MEDIA_TYPE,
 } from './status-list.constants';
 
-const JWT_FORMAT = 'jwt';
 const MAX_AGE_SECONDS = STATUS_LIST_CACHE_TTL_MS / 1000;
 
 /** Public: verifiers fetch the revocation list here; no Clerk session is required. */
@@ -37,14 +37,10 @@ export class StatusListController {
     }
 
     const list = await this.statusList.getCredential();
-    if (wantsJwt(format, accept)) {
+    if (wantsJwt(format, accept, VC_JWT_MEDIA_TYPE)) {
       response.type(VC_JWT_MEDIA_TYPE);
       return list.jwt;
     }
     return list.credential;
   }
-}
-
-function wantsJwt(format: string | undefined, accept: string | undefined) {
-  return format === JWT_FORMAT || (accept ?? '').includes(VC_JWT_MEDIA_TYPE);
 }

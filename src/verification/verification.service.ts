@@ -3,6 +3,8 @@ import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { VC_JWT_MEDIA_TYPE } from 'src/status-list/status-list.constants';
 import { StatusListService } from 'src/status-list/status-list.service';
+import { issuerDidOf } from 'src/shared/credential-object';
+import { IssuedCredentialRecordsService } from './issued-credential-records.service';
 import {
   isPlainObject,
   leafCertificateOf,
@@ -43,8 +45,10 @@ type VerificationInput = {
 /**
  * Checks a verifiable credential the way a third party would: signature by
  * the `x5c` leaf, validity window, revocation through the status list the
- * credential points at (W3C Bitstring Status List §3.2). Nothing is stored
- * and no caller identity is needed.
+ * credential points at (W3C Bitstring Status List §3.2). A credential
+ * without a status entry is looked up in the platform's own records, the
+ * only place where the revocation of a credential issued before status
+ * lists is known. Nothing is stored and no caller identity is needed.
  */
 @Injectable()
 export class VerificationService {
@@ -53,6 +57,7 @@ export class VerificationService {
   constructor(
     private readonly statusList: StatusListService,
     private readonly httpService: HttpService,
+    private readonly records: IssuedCredentialRecordsService,
   ) {}
 
   async verify(body: unknown): Promise<VerificationResult> {
@@ -62,7 +67,11 @@ export class VerificationService {
 
     const signature = this.checkSignature(input, credential);
     const validity = checkValidity(credential, now);
-    const revocation = await this.checkRevocation(credential, now);
+    const revocation = await this.checkRevocation(
+      input.jws.compact,
+      credential,
+      now,
+    );
 
     return {
       valid: signature.valid && validity.valid && isNotRevoked(revocation),
@@ -123,6 +132,7 @@ export class VerificationService {
   }
 
   private async checkRevocation(
+    token: string,
     credential: Record<string, unknown>,
     now: Date,
   ): Promise<RevocationCheck> {
@@ -130,10 +140,14 @@ export class VerificationService {
     try {
       const entry = revocationEntryOf(credential.credentialStatus);
       if (!entry) {
-        return { status: 'unknown', checkedAt };
+        return await this.checkPlatformRecord(token, checkedAt);
       }
       const revoked = await this.isRevoked(entry, now);
-      return { status: revoked ? 'revoked' : 'valid', checkedAt };
+      return {
+        status: revoked ? 'revoked' : 'valid',
+        checkedAt,
+        source: 'status-list',
+      };
     } catch (error) {
       this.logger.warn(`revocation check failed: ${error.message}`);
       return {
@@ -145,6 +159,18 @@ export class VerificationService {
             : 'STATUS_RETRIEVAL_ERROR',
       };
     }
+  }
+
+  /** No status entry: only the platform's record of its own credential can answer. */
+  private async checkPlatformRecord(
+    token: string,
+    checkedAt: string,
+  ): Promise<RevocationCheck> {
+    const state = await this.records.stateOfToken(token);
+    if (state === 'unknown') {
+      return { status: 'unknown', checkedAt };
+    }
+    return { status: state, checkedAt, source: 'platform-record' };
   }
 
   private async isRevoked(entry: StatusListEntry, now: Date): Promise<boolean> {
@@ -203,16 +229,6 @@ function checkValidity(
 /** A date for a string claim: `undefined` when absent, an invalid Date when unparsable. */
 function parseDate(claim: unknown): Date | undefined {
   return typeof claim === 'string' ? new Date(claim) : undefined;
-}
-
-function issuerDidOf(credential: Record<string, unknown>): string | null {
-  const issuer = credential.issuer;
-  if (typeof issuer === 'string') {
-    return issuer;
-  }
-  return isPlainObject(issuer) && typeof issuer.id === 'string'
-    ? issuer.id
-    : null;
 }
 
 function withoutProof(

@@ -7,6 +7,7 @@ import { X509CertificateGenerator, cryptoProvider } from '@peculiar/x509';
 import { signJWTWithX5c } from 'src/credentials/credentials.helpers';
 import { encodeBitstring } from 'src/status-list/bitstring';
 import { StatusListService } from 'src/status-list/status-list.service';
+import { IssuedCredentialRecordsService } from './issued-credential-records.service';
 import { VerificationService } from './verification.service';
 import {
   EphemeralPlatformSigner,
@@ -146,6 +147,7 @@ function signEs256(
 
 describe('VerificationService', () => {
   const statusList = { isLocalListUrl: jest.fn(), isRevoked: jest.fn() };
+  const records = { stateOfToken: jest.fn() };
   let service: VerificationService;
   let platformSigner: EphemeralPlatformSigner;
 
@@ -163,10 +165,12 @@ describe('VerificationService', () => {
       (url: string) => url === LOCAL_LIST_URL,
     );
     statusList.isRevoked.mockResolvedValue(false);
+    records.stateOfToken.mockResolvedValue('unknown');
     dnsLookup.mockResolvedValue([{ address: PUBLIC_ADDRESS, family: 4 }]);
     service = new VerificationService(
       statusList as unknown as StatusListService,
       httpService as unknown as HttpService,
+      records as unknown as IssuedCredentialRecordsService,
     );
   });
 
@@ -190,9 +194,11 @@ describe('VerificationService', () => {
     expect(result.checks.revocation).toEqual({
       status: 'valid',
       checkedAt: expect.any(String),
+      source: 'status-list',
     });
     expect(result.credential).toEqual(credential);
     expect(statusList.isRevoked).toHaveBeenCalledWith(INDEX);
+    expect(records.stateOfToken).not.toHaveBeenCalled();
   });
 
   it('accepts the credential object with its proof and compares it to the payload', async () => {
@@ -260,16 +266,81 @@ describe('VerificationService', () => {
     expect(result.checks.revocation.status).toBe('revoked');
   });
 
-  it('reports revocation as unknown for a credential without status entry', async () => {
-    const jwt = await signJWTWithX5c(
-      buildCredential({ credentialStatus: undefined }),
-    );
+  describe('credentials without a status entry', () => {
+    it('reports revocation as unknown when the platform has no record of the token', async () => {
+      const jwt = await signJWTWithX5c(
+        buildCredential({ credentialStatus: undefined }),
+      );
 
-    const result = await service.verify({ jwt });
+      const result = await service.verify({ jwt });
 
-    expect(result.valid).toBe(true);
-    expect(result.checks.revocation.status).toBe('unknown');
-    expect(statusList.isRevoked).not.toHaveBeenCalled();
+      expect(result.valid).toBe(true);
+      expect(result.checks.revocation).toEqual({
+        status: 'unknown',
+        checkedAt: expect.any(String),
+      });
+      expect(records.stateOfToken).toHaveBeenCalledWith(jwt);
+      expect(statusList.isRevoked).not.toHaveBeenCalled();
+    });
+
+    it('reports a credential the platform revoked as revoked from its record', async () => {
+      records.stateOfToken.mockResolvedValue('revoked');
+      const jwt = await signJWTWithX5c(
+        buildCredential({ credentialStatus: undefined }),
+      );
+
+      const result = await service.verify({ jwt });
+
+      expect(result.valid).toBe(false);
+      expect(result.checks.signature.valid).toBe(true);
+      expect(result.checks.revocation).toEqual({
+        status: 'revoked',
+        checkedAt: expect.any(String),
+        source: 'platform-record',
+      });
+    });
+
+    it('reports a credential the platform still holds as issued as valid from its record', async () => {
+      records.stateOfToken.mockResolvedValue('valid');
+      const jwt = await signJWTWithX5c(
+        buildCredential({ credentialStatus: undefined }),
+      );
+
+      const result = await service.verify({ jwt });
+
+      expect(result.valid).toBe(true);
+      expect(result.checks.revocation).toEqual({
+        status: 'valid',
+        checkedAt: expect.any(String),
+        source: 'platform-record',
+      });
+    });
+
+    it('looks the record up by the token as presented, with surrounding whitespace removed', async () => {
+      const jwt = await signJWTWithX5c(
+        buildCredential({ credentialStatus: undefined }),
+      );
+
+      await service.verify({ jwt: `  ${jwt}\n` });
+
+      expect(records.stateOfToken).toHaveBeenCalledWith(jwt);
+    });
+
+    it('reports an error when the platform record cannot be read', async () => {
+      records.stateOfToken.mockRejectedValue(new Error('database down'));
+      const jwt = await signJWTWithX5c(
+        buildCredential({ credentialStatus: undefined }),
+      );
+
+      const result = await service.verify({ jwt });
+
+      expect(result.valid).toBe(false);
+      expect(result.checks.revocation).toEqual({
+        status: 'error',
+        checkedAt: expect.any(String),
+        reason: 'STATUS_RETRIEVAL_ERROR',
+      });
+    });
   });
 
   it('rejects the credential when the status list cannot be read', async () => {
