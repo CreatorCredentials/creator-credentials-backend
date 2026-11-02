@@ -71,7 +71,7 @@ export class WebhooksService {
       `user.created: clerkId=${clerkId} role=${clerkRole} email=${email} name=${name} termsAreAccepted=${termsAreAccepted}`,
     );
 
-    if (!termsAreAccepted || !termsLink) {
+    if (!this.mayCreateRow(clerkRole, termsAreAccepted, termsLink)) {
       this.logger.warn(
         `user.created: skipping DB creation for clerkId=${clerkId} — termsAreAccepted or termsLink not present in Clerk metadata. User will be created on user.updated once terms are set.`,
       );
@@ -111,14 +111,15 @@ export class WebhooksService {
 
     const existing = await this.usersService.getByClerkId(clerkId);
     if (!existing) {
-      if (!termsAreAccepted || !termsLink) {
+      if (!this.mayCreateRow(newRole, termsAreAccepted, termsLink)) {
         this.logger.warn(
           `user.updated: skipping DB creation for clerkId=${clerkId} — termsAreAccepted or termsLink not present.`,
         );
         return;
       }
       // Webhook ordering edge-case: user.updated arrived before user.created,
-      // or user.created was skipped due to missing terms and terms have now been set.
+      // user.created was skipped due to missing terms and terms have now been
+      // set, or an operator gave an existing Clerk account the admin role.
       const email = this.primaryEmail(data);
       await this.usersService.create({
         clerkId,
@@ -153,6 +154,21 @@ export class WebhooksService {
     return (
       primary?.email_address ?? data.email_addresses?.[0]?.email_address ?? ''
     );
+  }
+
+  /**
+   * Issuers and creators accept the terms during sign-up, and the row is
+   * created only once the terms are in the metadata. Admins are created by
+   * operators in the Clerk dashboard, outside the sign-up flow, so no terms
+   * are expected of them; `public_metadata.role` is the only source of the
+   * admin role, see `resolveRoleMetadata`.
+   */
+  private mayCreateRow(
+    role: ClerkRole,
+    termsAreAccepted: boolean,
+    termsLink: string | undefined,
+  ): boolean {
+    return role === ClerkRole.Admin || (termsAreAccepted && Boolean(termsLink));
   }
 
   private resolveRole(roleMetadata?: string): ClerkRole {
