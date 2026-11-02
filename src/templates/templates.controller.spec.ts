@@ -53,15 +53,21 @@ describe('TemplatesController', () => {
       });
     });
 
-    it('offers data supplier templates only from issuers holding a certificate', async () => {
+    it('offers certificate-signed templates only from issuers holding a certificate', async () => {
       usersService.getAllConnectedIssuersOfCreator.mockResolvedValue([
         buildUser({
           id: 11,
-          credentialsToIssue: [CredentialType.DataSupplier],
+          credentialsToIssue: [
+            CredentialType.DataSupplier,
+            CredentialType.Creator,
+          ],
         }),
         buildUser({
           id: 12,
-          credentialsToIssue: [CredentialType.LicciumDataSupplier],
+          credentialsToIssue: [
+            CredentialType.LicciumDataSupplier,
+            CredentialType.Creator,
+          ],
           externalCertPem: '-----BEGIN CERTIFICATE-----',
         }),
       ]);
@@ -69,6 +75,7 @@ describe('TemplatesController', () => {
       await expect(controller.getCreatorsWithFilter(creator)).resolves.toEqual({
         templates: [
           { templateType: CredentialTemplateType.LicciumExternalKeypair },
+          { templateType: CredentialTemplateType.Creator },
         ],
       });
     });

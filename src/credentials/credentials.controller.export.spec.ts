@@ -65,7 +65,6 @@ describe('CredentialsController export', () => {
   const credentialsService = {
     removeConnectCredential: jest.fn(),
     createConnectCredential: jest.fn(),
-    ensureCreatorCredential: jest.fn(),
     getCredentialsOfUserByType: jest.fn(),
   };
   const usersService = { getByClerkId: jest.fn() };
@@ -105,15 +104,11 @@ describe('CredentialsController export', () => {
     );
   });
 
-  it('re-issues the Connect credential and ensures one Creator credential', async () => {
+  it('re-issues the Connect credential and returns the Creator credential it finds', async () => {
     const result = await controller.exportCredentialsForUser('token');
 
     expect(credentialsService.createConnectCredential).toHaveBeenCalledWith(
       { didKey: creator.didKey, licciumDidKey: LICCIUM_DID_KEY },
-      creator,
-    );
-    expect(credentialsService.ensureCreatorCredential).toHaveBeenCalledTimes(1);
-    expect(credentialsService.ensureCreatorCredential).toHaveBeenCalledWith(
       creator,
     );
     expect(result.credentials.verifiableCreator).toMatchObject({

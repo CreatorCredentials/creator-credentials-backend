@@ -311,7 +311,9 @@ export function formatCreatorCredential(
     status: credential.credentialStatus,
     type: CredentialType.Creator,
     data: {
-      verifiedBy: credential.value,
+      verifiedBy:
+        credential.credentialObject?.credentialSubject?.verifiedBy ??
+        credential.value,
       credentialObject: credentialObjectWithProof(credential),
     },
   };
