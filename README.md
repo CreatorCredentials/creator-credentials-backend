@@ -47,7 +47,6 @@ NestJS API for the Creator Credentials platform: Clerk-authenticated issuer/crea
 | `SIGNATURE_KEY_D` / `SIGNATURE_KEY_X` / `SIGNATURE_KEY_Y` | EC P-256 keypair for the `jose` ES256 VC path (did:web VCs) |
 | `HALCOM_CERT_PRIVATE_KEY` | RS256 platform signer for `signJWTWithX5c` (**missing from `.env.example` – add it**) |
 | `LICCIUM_CLERK_KEYS_KID` / `LICCIUM_CLERK_KEYS_N` / `LICCIUM_CLERK_KEYS_E` | Rebuild the RSA public key that verifies the cross-app export JWT (`/v1/credentials/export`) |
-| `CERT_SECRET_KEY` | ACME HTTP-01 response at `/.well-known/acme-challenge/:id` |
 | `TERMS_AND_CONDITIONS_URL` | Read in the signature-challenge message (`users.service.ts:455`) |
 
 ### Optional (have in-code defaults)
