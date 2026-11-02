@@ -89,6 +89,7 @@ export class AppModule implements NestModule {
         'v1/credentials/export',
         'v1/credentials/verify',
         'v1/status-lists/(.*)',
+        'v1/revoked-credentials',
         'v1/webhooks/(.*)',
       )
       .forRoutes('*');
