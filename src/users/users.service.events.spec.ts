@@ -27,7 +27,6 @@ describe('UsersService', () => {
   const userRepository = { findOne: jest.fn(), save: jest.fn() };
   const credentialsService = {
     createConnectCredential: jest.fn(),
-    ensureCreatorCredential: jest.fn(),
   };
   const connectionsService = { createConnection: jest.fn() };
   const eventEmitter = { emit: jest.fn() };
@@ -88,7 +87,7 @@ describe('UsersService', () => {
   });
 
   describe('connectLicciumDidKeyToUser', () => {
-    it('issues the Connect credential and ensures the Creator credential once', async () => {
+    it('issues the Connect credential', async () => {
       const linked = buildUser({
         ...creator,
         licciumDidKey: 'did:key:zLiccium',
@@ -99,12 +98,6 @@ describe('UsersService', () => {
 
       expect(credentialsService.createConnectCredential).toHaveBeenCalledWith(
         { didKey: creator.didKey, licciumDidKey: 'did:key:zLiccium' },
-        linked,
-      );
-      expect(credentialsService.ensureCreatorCredential).toHaveBeenCalledTimes(
-        1,
-      );
-      expect(credentialsService.ensureCreatorCredential).toHaveBeenCalledWith(
         linked,
       );
     });

@@ -39,6 +39,14 @@ import { KeyObject, createPublicKey } from 'crypto';
 import { KeypairChallengeService } from 'src/keypair-challenge/keypair-challenge.service';
 import { ClerkEmailsService } from 'src/clerk/clerk-emails.service';
 
+/** What a creator may ask an issuer for; Verified Creator is certificate-signed like the data supplier types. */
+const REQUESTABLE_CREDENTIAL_TYPES: CredentialType[] = [
+  CredentialType.Member,
+  CredentialType.DataSupplier,
+  CredentialType.LicciumDataSupplier,
+  CredentialType.Creator,
+];
+
 @Controller('credentials')
 export class CredentialsController {
   constructor(
@@ -217,12 +225,12 @@ export class CredentialsController {
     }
 
     if (
-      credentialType !== CredentialType.Member &&
-      credentialType !== CredentialType.DataSupplier &&
-      credentialType !== CredentialType.LicciumDataSupplier
+      !REQUESTABLE_CREDENTIAL_TYPES.includes(credentialType as CredentialType)
     ) {
       throw new BadRequestException(
-        `credentialType must be ${CredentialType.Member}, ${CredentialType.DataSupplier}, or ${CredentialType.LicciumDataSupplier}.`,
+        `credentialType must be one of ${REQUESTABLE_CREDENTIAL_TYPES.join(
+          ', ',
+        )}.`,
       );
     }
 
@@ -287,6 +295,20 @@ export class CredentialsController {
       }
 
       return this.credentialsService.createPendingLicciumDataSupplierCredential(
+        { value: issuerValue, did: keypairSnapshot.derivedDidKey },
+        user,
+        issuerId,
+        keypairSnapshot,
+      );
+    } else if (credentialType === CredentialType.Creator) {
+      const keypairSnapshot =
+        await this.keypairChallengeService.consumeLatestVerified(user);
+      if (!keypairSnapshot) {
+        throw new BadRequestException(
+          'Verified Creator credentials require a completed keypair challenge. Please complete the challenge before requesting.',
+        );
+      }
+      return this.credentialsService.createPendingCreatorCredential(
         { value: issuerValue, did: keypairSnapshot.derivedDidKey },
         user,
         issuerId,
@@ -410,7 +432,6 @@ export class CredentialsController {
       { didKey: user.didKey, licciumDidKey },
       user,
     );
-    await this.credentialsService.ensureCreatorCredential(user);
 
     const [
       emailCredential,
@@ -522,6 +543,11 @@ export class CredentialsController {
         user,
         credentialId,
       );
+    } else if (credentialType === CredentialType.Creator) {
+      return this.credentialsService.initiateCreatorCredentialAcceptance(
+        user,
+        credentialId,
+      );
     } else if (credentialType === CredentialType.Member) {
       return this.credentialsService.initiateMembershipCredentialAcceptance(
         user,
@@ -557,6 +583,12 @@ export class CredentialsController {
       );
     } else if (credentialType === CredentialType.LicciumDataSupplier) {
       return this.credentialsService.verifyLicciumDataSupplierCredentialAcceptance(
+        user,
+        credentialId,
+        signature,
+      );
+    } else if (credentialType === CredentialType.Creator) {
+      return this.credentialsService.verifyCreatorCredentialAcceptance(
         user,
         credentialId,
         signature,

@@ -508,7 +508,6 @@ export class UsersService {
       { didKey: user.didKey, licciumDidKey },
       updatedUser,
     );
-    await this.credentialsService.ensureCreatorCredential(updatedUser);
     return updatedUser;
   }
 

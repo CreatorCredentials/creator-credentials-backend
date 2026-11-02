@@ -9,9 +9,7 @@ import {
   formatCreatorCredential,
   formatIssuedCredential,
   formatMemberCredential,
-  stripTransientFields,
 } from './credentials.formatters';
-import { generateCreatorCredentialObjectAndJWS } from './credentials.helpers';
 import { NotificationEvent } from 'src/notifications/notification-events';
 import { ClerkRole, User } from 'src/users/user.entity';
 import {
@@ -554,99 +552,63 @@ describe('CredentialsService', () => {
     });
   });
 
-  describe('ensureCreatorCredential', () => {
-    const builder = generateCreatorCredentialObjectAndJWS as jest.Mock;
+  describe('Verified Creator requests (certificate-signed flow)', () => {
+    const snapshot = {
+      derivedDidKey: 'did:key:zAliceExternal',
+      publicKeyPem: '-----BEGIN PUBLIC KEY-----',
+    };
 
-    it('returns the existing Creator credential without issuing another', async () => {
-      const existing = buildCredential({
-        credentialType: CredentialType.Creator,
-        issuerId: null,
-        value: PLATFORM_HOST,
-      });
-      repository.findOne.mockResolvedValue(existing);
-
-      await expect(service.ensureCreatorCredential(creator)).resolves.toBe(
-        existing,
+    it('refuses a second pending request for the same issuer', async () => {
+      repository.findOne.mockResolvedValue(
+        buildCredential({
+          credentialType: CredentialType.Creator,
+          credentialStatus: CredentialVerificationStatus.Pending,
+        }),
       );
 
-      expect(repository.findOne).toHaveBeenCalledWith({
-        where: {
-          userId: CREATOR_ID,
-          credentialType: CredentialType.Creator,
-          credentialStatus: CredentialVerificationStatus.Success,
-        },
-      });
-      expect(builder).not.toHaveBeenCalled();
+      await expect(
+        service.createPendingCreatorCredential(
+          { value: 'did:web:issuer.example', did: snapshot.derivedDidKey },
+          creator,
+          ISSUER_ID,
+          snapshot,
+        ),
+      ).rejects.toThrow(/pending Verified Creator credential request/);
       expect(repository.save).not.toHaveBeenCalled();
     });
 
-    it('issues a SUCCESS Creator credential verified by the platform when none exists', async () => {
-      repository.findOne.mockResolvedValue(null);
-      builder.mockResolvedValue({
-        credentialObject: { type: ['VerifiableCreator'] },
-        jws: 'creator.jws',
-      });
-
-      const issued = await service.ensureCreatorCredential(creator);
-
-      expect(builder).toHaveBeenCalledWith(
-        creator,
-        PLATFORM_HOST,
-        RESERVED_ENTRY,
+    it('lets only an issuer holding a certificate accept the request', async () => {
+      await expect(
+        service.initiateCreatorCredentialAcceptance(issuer, 5),
+      ).rejects.toThrow(
+        /certificate challenge before accepting Verified Creator/,
       );
-      expect(repository.save).toHaveBeenCalledTimes(1);
-      expect(issued).toMatchObject({
-        credentialType: CredentialType.Creator,
-        credentialStatus: CredentialVerificationStatus.Success,
-        value: PLATFORM_HOST,
-        token: 'creator.jws',
-        statusListIndex: RESERVED_INDEX,
-        user: creator,
-      });
+      await expect(
+        service.verifyCreatorCredentialAcceptance(issuer, 5, 'c2ln'),
+      ).rejects.toThrow(ConflictException);
+      expect(repository.findOne).not.toHaveBeenCalled();
     });
 
-    it('reserves one status-list entry per issued credential', async () => {
+    it('answers 409 when the issuer has no such pending request', async () => {
       repository.findOne.mockResolvedValue(null);
-      builder.mockResolvedValue({ credentialObject: {}, jws: 'creator.jws' });
-
-      await service.ensureCreatorCredential(creator);
-
-      expect(statusList.reserveEntry).toHaveBeenCalledTimes(1);
-    });
-
-    it('returns the row a concurrent request issued first', async () => {
-      const concurrentlyIssued = buildCredential({
-        credentialType: CredentialType.Creator,
-        issuerId: null,
-        value: PLATFORM_HOST,
+      const certifiedIssuer = buildUser({
+        ...issuer,
+        externalCertPem: '-----BEGIN CERTIFICATE-----',
       });
-      repository.findOne
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(concurrentlyIssued);
-      builder.mockResolvedValue({ credentialObject: {}, jws: 'creator.jws' });
-      repository.save.mockRejectedValue({ code: '23505' });
 
-      await expect(service.ensureCreatorCredential(creator)).resolves.toBe(
-        concurrentlyIssued,
+      await expect(
+        service.initiateCreatorCredentialAcceptance(certifiedIssuer, 5),
+      ).rejects.toThrow(/Pending Verified Creator credential not found/);
+      expect(repository.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            credentialType: CredentialType.Creator,
+            issuerId: ISSUER_ID,
+            id: 5,
+          }),
+        }),
       );
-      expect(repository.findOne).toHaveBeenCalledTimes(2);
     });
-  });
-});
-
-describe('stripTransientFields', () => {
-  it('removes every key starting with a double underscore', () => {
-    expect(
-      stripTransientFields({
-        id: 'urn:uuid:credential',
-        __keypairSnapshot: { derivedDidKey: EXTERNAL_DID_KEY },
-        __acceptanceChallenge: { signingInput: 'header.payload' },
-      }),
-    ).toEqual({ id: 'urn:uuid:credential' });
-  });
-
-  it('tolerates a missing credential object', () => {
-    expect(stripTransientFields(undefined)).toEqual({});
   });
 });
 
