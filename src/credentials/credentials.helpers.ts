@@ -338,17 +338,20 @@ export async function generateEmailCredentialObjectAndJWS(
 }
 
 /**
- * Platform-issued attestation that the creator's Liccium account is linked.
- * The subject carries no personal data, so the presentation policy is public.
+ * `VerifiableCreator`: an issuer attests that the subject is a verified
+ * creator. Like the data supplier credentials it is signed with the issuer's
+ * own X.509 certificate, so `issuer` is the certificate DID; `verifiedBy`
+ * names the attesting issuer (its domain, else the host of that DID).
  */
 export function buildCreatorCredentialObject(
-  user: User,
-  verifiedBy: string,
+  subjectDidKey: string,
+  issuer: User,
   credentialStatus?: CredentialStatusEntry,
 ) {
   const now = new Date();
   const end = new Date();
   end.setFullYear(end.getFullYear() + 3);
+  const issuerDid = resolveIssuerDidFromCert(issuer.externalCertPem);
 
   return {
     '@context': ['https://www.w3.org/ns/credentials/v2'],
@@ -358,12 +361,12 @@ export function buildCreatorCredentialObject(
       'VerifiableAttestation',
       'VerifiableCreator',
     ],
-    issuer: PLATFORM_DID,
+    issuer: issuerDid,
     validFrom: now.toISOString(),
     validUntil: end.toISOString(),
     credentialSubject: {
-      id: resolveDidKey(user),
-      verifiedBy,
+      id: subjectDidKey,
+      verifiedBy: verifiedByOf(issuer, issuerDid),
     },
     ...withCredentialStatus(credentialStatus),
     credentialSchema: [
@@ -381,18 +384,23 @@ export function buildCreatorCredentialObject(
 }
 
 export async function generateCreatorCredentialObjectAndJWS(
-  user: User,
-  verifiedBy: string,
+  creator: User,
+  issuer: User,
+  subjectDidKeyOverride?: string,
   credentialStatus?: CredentialStatusEntry,
 ) {
   const credentialObject = buildCreatorCredentialObject(
-    user,
-    verifiedBy,
+    subjectDidKeyOverride ?? resolveDidKey(creator),
+    issuer,
     credentialStatus,
   );
-  const jws = await signJWTWithX5c(credentialObject);
+  const jws = await signJWTWithX5c(credentialObject, issuer.externalCertPem);
 
   return { credentialObject, jws };
+}
+
+function verifiedByOf(issuer: User, issuerDid: string): string {
+  return issuer.domain ?? issuerDid.replace(/^did:web:/, '');
 }
 
 export async function generateDomainCredentialObjectAndJWS(

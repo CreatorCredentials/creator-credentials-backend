@@ -33,6 +33,73 @@ import {
   PLATFORM_DID,
   resolveDidKey,
 } from './credentials.helpers';
+
+type KeypairSnapshot = { derivedDidKey: string; publicKeyPem: string };
+
+/**
+ * A credential type the issuer signs with its own X.509 certificate after the
+ * creator proved a keypair: the request, the acceptance challenge and the
+ * signature check are the same for all of them, only the object differs.
+ */
+type CertSignedCredentialKind = {
+  type: CredentialType;
+  /** As named in error messages. */
+  label: string;
+  /** The unsigned credential object; the issuer signs it on its own machine. */
+  build: (
+    pending: Credential,
+    issuer: User,
+    subjectDidKey: string | undefined,
+    credentialStatus: CredentialStatusEntry,
+  ) => Promise<{ credentialObject: any }>;
+};
+
+const CERT_SIGNED_KINDS: Partial<
+  Record<CredentialType, CertSignedCredentialKind>
+> = {
+  [CredentialType.DataSupplier]: {
+    type: CredentialType.DataSupplier,
+    label: 'Data Supplier',
+    build: (pending, issuer, subjectDidKey, credentialStatus) =>
+      generateDataSupplierCredentialObjectAndJWS(
+        {
+          value: pending.value,
+          did: subjectDidKey ?? pending.user.didKey,
+        },
+        pending.user,
+        issuer,
+        subjectDidKey,
+        pending.user.organizationName,
+        credentialStatus,
+      ),
+  },
+  [CredentialType.LicciumDataSupplier]: {
+    type: CredentialType.LicciumDataSupplier,
+    label: 'Liccium Data Supplier',
+    build: (pending, issuer, subjectDidKey, credentialStatus) =>
+      generateLicciumDataSupplierCredentialObjectAndJWS(
+        {
+          value: pending.value,
+          did: subjectDidKey ?? pending.user.didKey,
+        },
+        pending.user,
+        issuer,
+        subjectDidKey,
+        credentialStatus,
+      ),
+  },
+  [CredentialType.Creator]: {
+    type: CredentialType.Creator,
+    label: 'Verified Creator',
+    build: (pending, issuer, subjectDidKey, credentialStatus) =>
+      generateCreatorCredentialObjectAndJWS(
+        pending.user,
+        issuer,
+        subjectDidKey,
+        credentialStatus,
+      ),
+  },
+};
 import { CreateConnectCredentialDto } from './dto/create-connect-credential.dto';
 import * as crypto from 'crypto';
 import { normalizeEcdsaSignature } from './signature-encoding';
@@ -45,9 +112,6 @@ import {
 } from 'src/notifications/notification-events';
 import { StatusListService } from 'src/status-list/status-list.service';
 import { CredentialStatusEntry } from 'src/status-list/status-list.types';
-
-const credentialsHost = 'liccium.com';
-const POSTGRES_UNIQUE_VIOLATION = '23505';
 
 /** Request types created together with an EKVC row (see createPending*DataSupplierCredential). */
 const REQUEST_TYPES_WITH_KEYPAIR_VERIFICATION: CredentialType[] = [
@@ -315,58 +379,6 @@ export class CredentialsService {
       credentialType: CredentialType.ExternalKeypairVerification,
       value: derivedDidKey,
       createdAt: MoreThanOrEqual(request.createdAt),
-    });
-  }
-
-  /**
-   * Platform-issued attestation that the creator's Liccium account is
-   * linked. One SUCCESS row per user: an existing row is returned as is, so
-   * the callers (Liccium connect and export) stay idempotent.
-   */
-  async ensureCreatorCredential(user: User): Promise<Credential> {
-    const existing = await this.findCreatorCredential(user);
-    if (existing) {
-      return existing;
-    }
-
-    const { index, credentialStatus } = await this.statusList.reserveEntry();
-    const { credentialObject, jws } =
-      await generateCreatorCredentialObjectAndJWS(
-        user,
-        credentialsHost,
-        credentialStatus,
-      );
-    const credential = this.credentialsRepository.create({
-      email: credentialsHost,
-      value: credentialsHost,
-      credentialType: CredentialType.Creator,
-      credentialStatus: CredentialVerificationStatus.Success,
-      credentialObject,
-      token: jws,
-      statusListIndex: index,
-      user,
-    });
-
-    try {
-      return await this.credentialsRepository.save(credential, {
-        reload: true,
-      });
-    } catch (error) {
-      // Unique violation: a concurrent request issued the row first.
-      if (error?.code === POSTGRES_UNIQUE_VIOLATION) {
-        return this.findCreatorCredential(user);
-      }
-      throw error;
-    }
-  }
-
-  private findCreatorCredential(user: User): Promise<Credential | null> {
-    return this.credentialsRepository.findOne({
-      where: {
-        userId: user.id,
-        credentialType: CredentialType.Creator,
-        credentialStatus: CredentialVerificationStatus.Success,
-      },
     });
   }
 
@@ -955,34 +967,154 @@ export class CredentialsService {
     };
   }
 
-  // ─── Data Supplier Credential flow ───────────────────────────────────────────
+  // ─── Certificate-signed credentials: Data Supplier, Liccium Data Supplier, Verified Creator ───
 
   async createPendingDataSupplierCredential(
     createMemberCredentialDto: CreateMemberCredentialDto,
     user: User,
     issuerId: number,
-    keypairSnapshot: { derivedDidKey: string; publicKeyPem: string },
+    keypairSnapshot: KeypairSnapshot,
+  ): Promise<Credential> {
+    return this.createPendingCertSignedCredential(
+      CERT_SIGNED_KINDS[CredentialType.DataSupplier],
+      createMemberCredentialDto,
+      user,
+      issuerId,
+      keypairSnapshot,
+    );
+  }
+
+  async initiateDataSupplierCredentialAcceptance(
+    issuer: User,
+    credentialId: number,
+  ) {
+    return this.initiateCertSignedAcceptance(
+      CERT_SIGNED_KINDS[CredentialType.DataSupplier],
+      issuer,
+      credentialId,
+    );
+  }
+
+  async verifyDataSupplierCredentialAcceptance(
+    issuer: User,
+    credentialId: number,
+    signatureBase64: string,
+  ): Promise<Credential> {
+    return this.verifyCertSignedAcceptance(
+      CERT_SIGNED_KINDS[CredentialType.DataSupplier],
+      issuer,
+      credentialId,
+      signatureBase64,
+    );
+  }
+
+  async createPendingLicciumDataSupplierCredential(
+    createMemberCredentialDto: CreateMemberCredentialDto,
+    user: User,
+    issuerId: number,
+    keypairSnapshot: KeypairSnapshot,
+  ): Promise<Credential> {
+    return this.createPendingCertSignedCredential(
+      CERT_SIGNED_KINDS[CredentialType.LicciumDataSupplier],
+      createMemberCredentialDto,
+      user,
+      issuerId,
+      keypairSnapshot,
+    );
+  }
+
+  async initiateLicciumDataSupplierCredentialAcceptance(
+    issuer: User,
+    credentialId: number,
+  ) {
+    return this.initiateCertSignedAcceptance(
+      CERT_SIGNED_KINDS[CredentialType.LicciumDataSupplier],
+      issuer,
+      credentialId,
+    );
+  }
+
+  async verifyLicciumDataSupplierCredentialAcceptance(
+    issuer: User,
+    credentialId: number,
+    signatureBase64: string,
+  ): Promise<Credential> {
+    return this.verifyCertSignedAcceptance(
+      CERT_SIGNED_KINDS[CredentialType.LicciumDataSupplier],
+      issuer,
+      credentialId,
+      signatureBase64,
+    );
+  }
+
+  async createPendingCreatorCredential(
+    createMemberCredentialDto: CreateMemberCredentialDto,
+    user: User,
+    issuerId: number,
+    keypairSnapshot: KeypairSnapshot,
+  ): Promise<Credential> {
+    return this.createPendingCertSignedCredential(
+      CERT_SIGNED_KINDS[CredentialType.Creator],
+      createMemberCredentialDto,
+      user,
+      issuerId,
+      keypairSnapshot,
+    );
+  }
+
+  async initiateCreatorCredentialAcceptance(
+    issuer: User,
+    credentialId: number,
+  ) {
+    return this.initiateCertSignedAcceptance(
+      CERT_SIGNED_KINDS[CredentialType.Creator],
+      issuer,
+      credentialId,
+    );
+  }
+
+  async verifyCreatorCredentialAcceptance(
+    issuer: User,
+    credentialId: number,
+    signatureBase64: string,
+  ): Promise<Credential> {
+    return this.verifyCertSignedAcceptance(
+      CERT_SIGNED_KINDS[CredentialType.Creator],
+      issuer,
+      credentialId,
+      signatureBase64,
+    );
+  }
+
+  /**
+   * Stores the request with the just-proven keypair snapshotted onto it and
+   * issues the platform-signed keypair verification (EKVC) that supports it.
+   */
+  private async createPendingCertSignedCredential(
+    kind: CertSignedCredentialKind,
+    createMemberCredentialDto: CreateMemberCredentialDto,
+    user: User,
+    issuerId: number,
+    keypairSnapshot: KeypairSnapshot,
   ): Promise<Credential> {
     const existing = await this.credentialsRepository.findOne({
       where: {
-        credentialType: CredentialType.DataSupplier,
+        credentialType: kind.type,
         issuerId,
         userId: user.id,
         credentialStatus: CredentialVerificationStatus.Pending,
       },
     });
-
     if (existing) {
       throw new ConflictException(
-        'A pending Data Supplier credential request already exists for this issuer. Wait for it to be approved or rejected before submitting a new one.',
+        `A pending ${kind.label} credential request already exists for this issuer. Wait for it to be approved or rejected before submitting a new one.`,
       );
     }
-
     const credential = this.credentialsRepository.create({
       email: createMemberCredentialDto.value,
       value: createMemberCredentialDto.value,
       issuerId,
-      credentialType: CredentialType.DataSupplier,
+      credentialType: kind.type,
       credentialStatus: CredentialVerificationStatus.Pending,
       credentialObject: {
         __keypairSnapshot: {
@@ -994,11 +1126,18 @@ export class CredentialsService {
       token: '',
       user,
     });
-
     const savedCredential = await this.credentialsRepository.save(credential, {
       reload: true,
     });
+    await this.issueKeypairVerification(user, keypairSnapshot);
+    this.emitCredentialRequested(savedCredential, user);
+    return savedCredential;
+  }
 
+  private async issueKeypairVerification(
+    user: User,
+    keypairSnapshot: KeypairSnapshot,
+  ): Promise<void> {
     const emailCredential = await this.credentialsRepository.findOne({
       where: {
         userId: user.id,
@@ -1008,7 +1147,6 @@ export class CredentialsService {
       order: { createdAt: 'DESC' },
     });
     const userEmail = emailCredential?.email ?? '';
-
     const ekvcEntry = await this.statusList.reserveEntry();
     const { credentialObject: ekvcObject, jws: ekvcJws } =
       await generateExternalKeypairVerificationCredentialObjectAndJWS(
@@ -1029,53 +1167,30 @@ export class CredentialsService {
       user,
     });
     await this.credentialsRepository.save(ekvcCredential);
-    this.emitCredentialRequested(savedCredential, user);
-
-    return savedCredential;
   }
 
-  async initiateDataSupplierCredentialAcceptance(
+  /**
+   * Builds the credential the issuer has to sign with its certificate key and
+   * hands back the signing input together with the openssl command.
+   */
+  private async initiateCertSignedAcceptance(
+    kind: CertSignedCredentialKind,
     issuer: User,
     credentialId: number,
   ) {
-    if (!issuer.externalCertPem) {
-      throw new ConflictException(
-        'Issuer must complete certificate challenge before accepting Data Supplier credentials.',
-      );
-    }
-
-    const pending = await this.credentialsRepository.findOne({
-      where: {
-        credentialType: CredentialType.DataSupplier,
-        issuerId: issuer.id,
-        id: credentialId,
-        credentialStatus: CredentialVerificationStatus.Pending,
-      },
-      relations: ['user'],
-    });
-
-    if (!pending) {
-      throw new ConflictException(
-        'Pending Data Supplier credential not found for this issuer.',
-      );
-    }
-
+    const pending = await this.loadPendingCertSigned(
+      kind,
+      issuer,
+      credentialId,
+    );
     const subjectDidKey = this.extractKeypairSnapshotDidKey(pending);
     const credentialStatus = await this.reserveStatusListEntryFor(pending);
-
-    const { credentialObject } =
-      await generateDataSupplierCredentialObjectAndJWS(
-        {
-          value: pending.value,
-          did: subjectDidKey ?? pending.user.didKey,
-        },
-        pending.user,
-        issuer,
-        subjectDidKey,
-        pending.user.organizationName,
-        credentialStatus,
-      );
-
+    const { credentialObject } = await kind.build(
+      pending,
+      issuer,
+      subjectDidKey,
+      credentialStatus,
+    );
     const signingInput = this.buildSigningInput(
       credentialObject,
       issuer.externalCertPem,
@@ -1085,16 +1200,14 @@ export class CredentialsService {
       credentialObject,
       initiatedAt: new Date().toISOString(),
     };
-
     pending.credentialObject = {
       ...(pending.credentialObject || {}),
       __acceptanceChallenge: challenge,
     };
     await this.credentialsRepository.save(pending, { reload: true });
-
-    const supportingCredential =
-      await this.findDataSupplierSupportingCredential(pending.userId);
-
+    const supportingCredential = await this.findKeypairSupportingCredential(
+      pending.userId,
+    );
     return {
       challenge,
       commands: [
@@ -1104,37 +1217,49 @@ export class CredentialsService {
     };
   }
 
-  async verifyDataSupplierCredentialAcceptance(
+  private async verifyCertSignedAcceptance(
+    kind: CertSignedCredentialKind,
     issuer: User,
     credentialId: number,
     signatureBase64: string,
   ): Promise<Credential> {
+    const pending = await this.loadPendingCertSigned(
+      kind,
+      issuer,
+      credentialId,
+    );
+    return this.executeSignatureVerification(pending, issuer, signatureBase64);
+  }
+
+  /** The issuer's pending request of this kind; the issuer must hold a certificate to sign it. */
+  private async loadPendingCertSigned(
+    kind: CertSignedCredentialKind,
+    issuer: User,
+    credentialId: number,
+  ): Promise<Credential> {
     if (!issuer.externalCertPem) {
       throw new ConflictException(
-        'Issuer must complete certificate challenge before accepting Data Supplier credentials.',
+        `Issuer must complete certificate challenge before accepting ${kind.label} credentials.`,
       );
     }
-
     const pending = await this.credentialsRepository.findOne({
       where: {
-        credentialType: CredentialType.DataSupplier,
+        credentialType: kind.type,
         issuerId: issuer.id,
         id: credentialId,
         credentialStatus: CredentialVerificationStatus.Pending,
       },
       relations: ['user'],
     });
-
     if (!pending) {
       throw new ConflictException(
-        'Pending Data Supplier credential not found.',
+        `Pending ${kind.label} credential not found for this issuer.`,
       );
     }
-
-    return this.executeSignatureVerification(pending, issuer, signatureBase64);
+    return pending;
   }
 
-  private async findDataSupplierSupportingCredential(
+  private async findKeypairSupportingCredential(
     userId: number,
   ): Promise<
     { credentialObject: any; proof: { type: string; jwt: string } } | undefined
@@ -1147,196 +1272,13 @@ export class CredentialsService {
       },
       order: { createdAt: 'DESC' },
     });
-
     if (!found) return undefined;
-
     const credentialObject = stripTransientFields(found.credentialObject);
-
     return {
       credentialObject,
       proof: { type: 'JwtProof2020', jwt: found.token },
     };
   }
-
-  // ─── Liccium Data Supplier Credential flow ───────────────────────────────────
-
-  async createPendingLicciumDataSupplierCredential(
-    createMemberCredentialDto: CreateMemberCredentialDto,
-    user: User,
-    issuerId: number,
-    keypairSnapshot: { derivedDidKey: string; publicKeyPem: string },
-  ): Promise<Credential> {
-    const existing = await this.credentialsRepository.findOne({
-      where: {
-        credentialType: CredentialType.LicciumDataSupplier,
-        issuerId,
-        userId: user.id,
-        credentialStatus: CredentialVerificationStatus.Pending,
-      },
-    });
-
-    if (existing) {
-      throw new ConflictException(
-        'A pending Liccium Data Supplier credential request already exists for this issuer. Wait for it to be approved or rejected before submitting a new one.',
-      );
-    }
-
-    const credential = this.credentialsRepository.create({
-      email: createMemberCredentialDto.value,
-      value: createMemberCredentialDto.value,
-      issuerId,
-      credentialType: CredentialType.LicciumDataSupplier,
-      credentialStatus: CredentialVerificationStatus.Pending,
-      credentialObject: {
-        __keypairSnapshot: {
-          derivedDidKey: keypairSnapshot.derivedDidKey,
-          publicKeyPem: keypairSnapshot.publicKeyPem,
-          capturedAt: new Date().toISOString(),
-        },
-      },
-      token: '',
-      user,
-    });
-
-    const savedCredential = await this.credentialsRepository.save(credential, {
-      reload: true,
-    });
-
-    const emailCredential = await this.credentialsRepository.findOne({
-      where: {
-        userId: user.id,
-        credentialType: CredentialType.EMail,
-        credentialStatus: CredentialVerificationStatus.Success,
-      },
-      order: { createdAt: 'DESC' },
-    });
-    const userEmail = emailCredential?.email ?? '';
-
-    const ekvcEntry = await this.statusList.reserveEntry();
-    const { credentialObject: ekvcObject, jws: ekvcJws } =
-      await generateExternalKeypairVerificationCredentialObjectAndJWS(
-        user,
-        keypairSnapshot.derivedDidKey,
-        userEmail,
-        undefined,
-        ekvcEntry.credentialStatus,
-      );
-    const ekvcCredential = this.credentialsRepository.create({
-      email: keypairSnapshot.derivedDidKey,
-      value: keypairSnapshot.derivedDidKey,
-      credentialType: CredentialType.ExternalKeypairVerification,
-      credentialStatus: CredentialVerificationStatus.Success,
-      credentialObject: ekvcObject,
-      token: ekvcJws,
-      statusListIndex: ekvcEntry.index,
-      user,
-    });
-    await this.credentialsRepository.save(ekvcCredential);
-    this.emitCredentialRequested(savedCredential, user);
-
-    return savedCredential;
-  }
-
-  async initiateLicciumDataSupplierCredentialAcceptance(
-    issuer: User,
-    credentialId: number,
-  ) {
-    if (!issuer.externalCertPem) {
-      throw new ConflictException(
-        'Issuer must complete certificate challenge before accepting Liccium Data Supplier credentials.',
-      );
-    }
-
-    const pending = await this.credentialsRepository.findOne({
-      where: {
-        credentialType: CredentialType.LicciumDataSupplier,
-        issuerId: issuer.id,
-        id: credentialId,
-        credentialStatus: CredentialVerificationStatus.Pending,
-      },
-      relations: ['user'],
-    });
-
-    if (!pending) {
-      throw new ConflictException(
-        'Pending Liccium Data Supplier credential not found for this issuer.',
-      );
-    }
-
-    const subjectDidKey = this.extractKeypairSnapshotDidKey(pending);
-    const credentialStatus = await this.reserveStatusListEntryFor(pending);
-
-    const { credentialObject } =
-      await generateLicciumDataSupplierCredentialObjectAndJWS(
-        {
-          value: pending.value,
-          did: subjectDidKey ?? pending.user.didKey,
-        },
-        pending.user,
-        issuer,
-        subjectDidKey,
-        credentialStatus,
-      );
-
-    const signingInput = this.buildSigningInput(
-      credentialObject,
-      issuer.externalCertPem,
-    );
-    const challenge = {
-      signingInput,
-      credentialObject,
-      initiatedAt: new Date().toISOString(),
-    };
-
-    pending.credentialObject = {
-      ...(pending.credentialObject || {}),
-      __acceptanceChallenge: challenge,
-    };
-    await this.credentialsRepository.save(pending, { reload: true });
-
-    const supportingCredential =
-      await this.findDataSupplierSupportingCredential(pending.userId);
-
-    return {
-      challenge,
-      commands: [
-        `SIG=$(printf %s "${signingInput}" | openssl dgst -sha256 -sign your_private_key.pem -binary | openssl base64 -A | tr -d '\n') && echo "Signature length: ${'${#SIG}'}" && echo "$SIG" && echo "$SIG" | pbcopy`,
-      ],
-      supportingCredential,
-    };
-  }
-
-  async verifyLicciumDataSupplierCredentialAcceptance(
-    issuer: User,
-    credentialId: number,
-    signatureBase64: string,
-  ): Promise<Credential> {
-    if (!issuer.externalCertPem) {
-      throw new ConflictException(
-        'Issuer must complete certificate challenge before accepting Liccium Data Supplier credentials.',
-      );
-    }
-
-    const pending = await this.credentialsRepository.findOne({
-      where: {
-        credentialType: CredentialType.LicciumDataSupplier,
-        issuerId: issuer.id,
-        id: credentialId,
-        credentialStatus: CredentialVerificationStatus.Pending,
-      },
-      relations: ['user'],
-    });
-
-    if (!pending) {
-      throw new ConflictException(
-        'Pending Liccium Data Supplier credential not found.',
-      );
-    }
-
-    return this.executeSignatureVerification(pending, issuer, signatureBase64);
-  }
-
-  // ─── Shared accept/verify utility ────────────────────────────────────────────
 
   async getPendingCredentialType(
     credentialId: number,
