@@ -78,7 +78,7 @@ export class WebhooksService {
       return;
     }
 
-    const { user, created } = await this.usersService.findOrCreate({
+    await this.createRow({
       clerkId,
       clerkRole,
       email,
@@ -86,15 +86,31 @@ export class WebhooksService {
       description,
       termsLink,
     });
+  }
+
+  /**
+   * Creates the database row once and announces the sign-up. Clerk sends
+   * `user.created` before the sign-up form has written the terms, so most
+   * rows are created from the later `user.updated`; the announcement follows
+   * the row, whichever event created it.
+   */
+  private async createRow(params: {
+    clerkId: string;
+    clerkRole: ClerkRole;
+    email: string;
+    name?: string;
+    description?: string;
+    termsLink?: string;
+  }): Promise<void> {
+    const { user, created } = await this.usersService.findOrCreate(params);
     if (!created) {
       return;
     }
-
     const payload: UserCreatedEvent = {
       userId: user.id,
       role: user.clerkRole,
       name: user.name,
-      email,
+      email: params.email,
     };
     this.eventEmitter.emit(NotificationEvent.UserCreated, payload);
   }
@@ -120,11 +136,10 @@ export class WebhooksService {
       // Webhook ordering edge-case: user.updated arrived before user.created,
       // user.created was skipped due to missing terms and terms have now been
       // set, or an operator gave an existing Clerk account the admin role.
-      const email = this.primaryEmail(data);
-      await this.usersService.create({
+      await this.createRow({
         clerkId,
         clerkRole: newRole,
-        email,
+        email: this.primaryEmail(data),
         name,
         description,
         termsLink,
